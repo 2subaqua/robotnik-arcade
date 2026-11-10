@@ -158,7 +158,10 @@ const LEVELS = {
     { earth: true, splash: true, waves: 4, perWave: 6, fire: 1.2 },
     { earth: true, waves: 5, perWave: 7, fire: 1.5 },
     // The boss: a black mothership. Destroy its turrets, then its shield generators, then its core.
-    { earth: true, boss: true, fire: 1.5 },
+    // Dusk and night: same number of waves, new formations (V and snake).
+    { earth: true, waves: 5, perWave: 7, fire: 1.6, ground: "dusk", types: ["vee", "snake", "slant", "vee", "snake"] },
+    { earth: true, waves: 5, perWave: 7, fire: 1.7, ground: "night", types: ["snake", "vee", "circle", "snake", "vee"] },
+    { earth: true, boss: true, fire: 1.5, ground: "night" },
     // The caves, seen from the side. gap: how wide the cave is, [narrowest, widest].
     { earth: true, cave: true, splash: true, waves: 6, perWave: 3, gap: [80, 150], fire: 1.3, powerEvery: 7 },
     { earth: true, cave: true, waves: 6, perWave: 3, gap: [52, 95], fire: 1.5, powerEvery: 7 },
@@ -1585,8 +1588,18 @@ const earthShip = () => earthShipCv || (earthShipCv = pixelArt([
   "dggggdwwww", "dgggggwwww", ".dgggggggw", ".dgggggggg", "..dggggddo", "...dddd.oy", ".......oyy", "........yy",
 ], { d: "#6b7080", g: "#a7adba", w: "#d9dde6", b: "#4f8dff", o: "#ff9f43", y: "#fff27f" }));
 let earthGroundCv = null;
-function earthGround() {
-  if (earthGroundCv) return earthGroundCv;
+// Colours of the ground on the Earth levels (5-7).
+const GROUNDS = {
+  dusk: { deep: "#1c2350", water: "#252e66", wave: "#4a5a99", brown: "#4a3d55", grey: "#4c4a63", edge: "#2a2638", roofBrown: "#62527a", roofGrey: "#66658a", lamp: "#c9a65a", grass1: "#2f4a48", grass2: "#355350", tuft: "#263d3b", bush: "#1f3332" },
+  night: { deep: "#0a1430", water: "#0f1c3d", wave: "#22345f", brown: "#1d1d24", grey: "#212329", edge: "#111216", roofBrown: "#2a2a33", roofGrey: "#2c2f37", lamp: "#ffd34d", grass1: "#122a1a", grass2: "#153020", tuft: "#0e2215", bush: "#0b1c11" },
+};
+let EARTH_PAL = { deep: "#1f5fd0", water: "#2f7be0", wave: "#8ec5ff", brown: "#7d6a58", grey: "#8a8f99", edge: "#55535a",
+  roofBrown: "#a58c72", roofGrey: "#b4b9c4", lamp: "#ffe066", grass1: "#3fa34d", grass2: "#4cb35a", tuft: "#2f8a3e", bush: "#256f33" };
+function earthGround(kind = "day") {
+  if (!earthGroundCv || typeof earthGroundCv.getContext === "function") earthGroundCv = {};
+  if (earthGroundCv[kind]) return earthGroundCv[kind];
+  const saved = EARTH_PAL;
+  if (GROUNDS[kind]) EARTH_PAL = GROUNDS[kind];
   const c = document.createElement("canvas"); c.width = 240; c.height = 720;
   const g = c.getContext("2d"), T = 12, per = 60;
   const P = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
@@ -1595,20 +1608,21 @@ function earthGround() {
   for (let r = 0; r < per; r++) for (let cl = 0; cl < 20; cl++) {
     const v = noise(cl, r), x = cl * T, y = r * T, h = hash(cl, r);
     if (v > 0.55) {                       // water
-      P(x, y, T, T, v > 1.1 ? "#1f5fd0" : "#2f7be0");
-      if (h > 0.6) P(x + 2 + Math.floor(h * 6), y + 4 + Math.floor(h * 6), 4, 1, "#8ec5ff");
+      P(x, y, T, T, v > 1.1 ? EARTH_PAL.deep : EARTH_PAL.water);
+      if (h > 0.6) P(x + 2 + Math.floor(h * 6), y + 4 + Math.floor(h * 6), 4, 1, EARTH_PAL.wave);
     } else if (v < -0.65) {               // buildings
-      P(x, y, T, T, h > 0.5 ? "#7d6a58" : "#8a8f99");
-      P(x, y, T, 1, "#55535a"); P(x, y, 1, T, "#55535a");
-      P(x + 3, y + 3, 6, 6, h > 0.5 ? "#a58c72" : "#b4b9c4");
-      if (h > 0.7) P(x + 5, y + 5, 2, 2, "#ffe066");
+      P(x, y, T, T, h > 0.5 ? EARTH_PAL.brown : EARTH_PAL.grey);
+      P(x, y, T, 1, EARTH_PAL.edge); P(x, y, 1, T, EARTH_PAL.edge);
+      P(x + 3, y + 3, 6, 6, h > 0.5 ? EARTH_PAL.roofBrown : EARTH_PAL.roofGrey);
+      if (h > 0.7) P(x + 5, y + 5, 2, 2, EARTH_PAL.lamp);
     } else {                              // grass
-      P(x, y, T, T, v > 0 ? "#3fa34d" : "#4cb35a");
-      if (h > 0.45) P(x + Math.floor(h * 10), y + Math.floor(h * 10) % 10, 2, 2, "#2f8a3e");
-      if (h > 0.85) P(x + 3, y + 7, 3, 3, "#256f33");
+      P(x, y, T, T, v > 0 ? EARTH_PAL.grass1 : EARTH_PAL.grass2);
+      if (h > 0.45) P(x + Math.floor(h * 10), y + Math.floor(h * 10) % 10, 2, 2, EARTH_PAL.tuft);
+      if (h > 0.85) P(x + 3, y + 7, 3, 3, EARTH_PAL.bush);
     }
   }
-  return earthGroundCv = c;
+  EARTH_PAL = saved;
+  return earthGroundCv[kind] = c;
 }
 // A slice of the planet, low on the left of the field, fading out softly at the edge.
 function roundGlow(x, y, r) {
@@ -2424,8 +2438,11 @@ class Space extends Game {
     const c = this.c;
     this.scrollY = 0; this.aliens = []; this.shields = []; this.retreat = false; this.retreatDone = false;
     this.waves = Array.from({ length: c.waves }, (_, i) => {
-      const type = pick(["line", "slant", "circle"]);
-      return { type, wait: 0.2 + i * 3.4, n: c.perWave, y: -60, t: 0, cx: rnd(190, 290), vx: type === "slant" ? pick([-34, 34]) : 0, slope: pick([-1, 1]) };
+      const type = c.types ? c.types[i % c.types.length] : pick(["line", "slant", "circle"]);
+      // Half the width of the formation, so the whole formation always fits between the walls.
+      const half = (c.perWave - 1) / 2, hw = { line: half * 24, slant: half * 22, circle: 36, vee: half * 21 + 30, snake: 72 }[type] + 9;
+      const lo = LEFT + hw, hi = Math.max(lo, RIGHT - hw);
+      return { type, lo, hi, wait: 0.2 + i * 3.4, n: c.perWave, y: -60, t: 0, cx: rnd(lo, hi), vx: type === "slant" ? pick([-34, 34]) : 0, slope: pick([-1, 1]) };
     });
     this.waves.forEach((w, wi) => { for (let k = 0; k < w.n; k++) this.aliens.push({ earth: true, wave: w, k, row: wi, mode: "form", wait: w.wait, x: -100, y: -100, vx: 0, vy: 0, spin: 1 }); });
     this.alive = this.aliens.length;
@@ -2458,14 +2475,14 @@ class Space extends Game {
   // Ships flying on their own are pushed apart so that none of them overlap.
   keepApart() {
     const live = this.aliens.filter(a => a && a.wait <= 0 && a.y > -40 && (!this.cave || a.x < RIGHT + 4)), RX = 18, RY = 13;
-    for (let pass = 0; pass < 3; pass++) for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+    for (let pass = 0; pass < 14; pass++) for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
       const a = live[i], b = live[j], fa = a.mode !== "form", fb = b.mode !== "form";
       if (!fa && !fb) continue;
       const dx = b.x - a.x, dy = b.y - a.y, ox = RX - Math.abs(dx), oy = RY - Math.abs(dy);
       if (ox <= 0 || oy <= 0) continue;                       // boxes apart already
       const sa = fa && fb ? 0.5 : fa ? 1 : 0, sb = fa && fb ? 0.5 : fb ? 1 : 0;
-      if (ox < oy) { const m = (dx < 0 || (dx === 0 && a.x > 240) ? -ox : ox); a.x -= m * sa; b.x += m * sb; }
-      else { const m = dy < 0 ? -oy : oy; a.y -= m * sa; b.y += m * sb; }
+      if (ox < oy) { const m = (dx < 0 || (dx === 0 && a.x > 240) ? -ox : ox) * 1.1; a.x -= m * sa; b.x += m * sb; }
+      else { const m = (dy < 0 ? -oy : oy) * 1.1; a.y -= m * sa; b.y += m * sb; }
       for (const s of [a, b]) { if (this.cave) s.y = clamp(s.y, 6, 264); else { s.x = clamp(s.x, LEFT + 9, RIGHT - 9); s.y = Math.max(s.y, -40); } }
     }
   }
@@ -2477,7 +2494,7 @@ class Space extends Game {
     for (const w of this.waves) {
       if (w.wait > 0) { w.wait -= dt; continue; }
       w.t += dt; w.y += 70 * dt; w.cx += w.vx * dt;
-      if (w.cx < 170 || w.cx > 310) w.vx = -w.vx;
+      if ((w.cx < w.lo && w.vx < 0) || (w.cx > w.hi && w.vx > 0)) w.vx = -w.vx;
     }
     const player = this.playerRect();
     for (const a of this.aliens) {
@@ -2507,6 +2524,8 @@ class Space extends Game {
     if (a.mode === "form") {
       if (w.type === "line") { a.x = w.cx + centered * 24; a.y = w.y; }
       else if (w.type === "slant") { a.x = w.cx + centered * 22; a.y = w.y + centered * 15 * w.slope; }
+      else if (w.type === "vee") { a.x = w.cx + centered * 21 + Math.sin(w.t * 1.4) * 30; a.y = w.y - Math.abs(centered) * 15; }   // a V, tip first, swaying
+      else if (w.type === "snake") { a.x = w.cx + Math.sin(w.t * 2.2 - a.k * 0.75) * 72; a.y = w.y - a.k * 20; }                    // single file, winding
       else { const ang = w.t * 1.6 + a.k * TAU / w.n; a.x = w.cx + Math.cos(ang) * 36; a.y = w.y + Math.sin(ang) * 36; }
       a.x = clamp(a.x, LEFT + 9, RIGHT - 9);
       if (a.y > 205) { a.mode = "turn"; a.vx = 0; a.vy = 130; a.spin = a.x < 240 ? 1 : -1; }
@@ -2548,7 +2567,7 @@ class Space extends Game {
   backdrop() {
     if (this.cave) { this.drawCave(); if (this.boss) this.drawBoss(); return; }
     if (this.earth) {
-      const g = earthGround(), y = Math.round(this.scrollY);
+      const g = earthGround(this.c.ground), y = Math.round(this.scrollY);
       ctx.drawImage(g, LEFT, y - 720); ctx.drawImage(g, LEFT, y);
       if (this.boss) this.drawBoss();
       return;
