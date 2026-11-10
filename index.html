@@ -714,7 +714,7 @@ const Pads = {
 const canFull = () => { try { return !!document.fullscreenEnabled; } catch (e) { return false; } };
 const UI = {
   get mute() { return View.portrait ? { x: 333, y: -31, w: 26, h: 26 } : { x: 452, y: 4, w: 26, h: 26 }; },
-  get full() { return View.portrait ? { x: 305, y: -31, w: 26, h: 26 } : { x: 452, y: 32, w: 26, h: 26 }; },
+  get full() { return View.portrait ? { x: 305, y: -31, w: 26, h: 26 } : { x: 424, y: 4, w: 26, h: 26 }; },   // beside the sound icon
   get pause() { return View.portrait ? { x: 121, y: -31, w: 26, h: 26 } : { x: 2, y: 4, w: 26, h: 26 }; },
   back(r) { rounded(r.x + 2, r.y + 2, r.w - 4, r.h - 4, 5); ctx.fillStyle = "rgba(255,255,255,.1)"; ctx.fill(); return [r.x + r.w / 2, r.y + r.h / 2]; },
   draw(paused) {
@@ -1338,8 +1338,8 @@ class Cheese extends Game {
     const life = (x, y) => sprite(Img.rat, 0, 0, 16, 12, x, y);
     life.w = 16;
     this.drawLeft("#d9bfff", life);
-    text("Cheese", 421, 15, { size: 13, color: "#ffd94d" });
-    text("Chase", 421, 30, { size: 13, color: "#ff7ad9" });
+    text("Cheese", 421, 41, { size: 13, color: "#ffd94d" });
+    text("Chase", 421, 55, { size: 13, color: "#ff7ad9" });
     if (!Input.touchMode) {
       sprite(Img.cheese, 0, 0, 12, 9, 380, 63); text("= 25", 400, 68, { align: "left" });
       sprite(tint(Img.jelly, "#ff7ad9"), 0, 0, 12, 12, 380, 82); text("watch out", 400, 88, { align: "left", color: "#ff9999" });
@@ -2563,8 +2563,8 @@ class Space extends Game {
     const life = (x, y) => { if (this.earth) ctx.drawImage(earthShip(), x, y - 2, 15, 12); else sprite(Img.cannon, 0, 0, 15, 7, x, y); };
     life.w = 15;
     this.drawLeft("#b3b3d9", life);
-    text("Space", 421, 16, { size: 13, color: "#ff5ad2" });
-    text("Attack", 421, 31, { size: 13, color: "#5ae6ff" });
+    text("Space", 421, 41, { size: 13, color: "#ff5ad2" });
+    text("Attack", 421, 55, { size: 13, color: "#5ae6ff" });
     if (!Input.touchMode) {
       [[0, 74, 30], [1, 90, 20], [3, 106, 10]].forEach(([row, y, p]) => { sprite(Img.aliens, 0, row * 8, 11, 8, 386, y - 4); text("= " + p, 404, y, { align: "left" }); });
       sprite(Img.ufo, 0, 0, 16, 8, 384, 118); text("= ???", 404, 122, { align: "left" });
@@ -2572,7 +2572,7 @@ class Space extends Game {
       text("\u2190 \u2192  move", 421, 227, { size: 11, color: "#8c8cb3" });
       text("Space  shoot", 421, 240, { size: 11, color: "#8c8cb3" });
     } else {
-      text("Left: " + this.alive, 421, 52, { color: "#b3b3d9" });
+      text("Left: " + this.alive, 421, 74, { color: "#b3b3d9" });
       if (this.state !== "name") Pads.drawSpace();
     }
   }
@@ -2725,15 +2725,15 @@ class Moonbase extends Space {
     life.w = 12;
     this.drawLeft("#b3b3d9", life);
     for (let i = 0; i < this.lives; i++) life(LEFT + 4 + i * 15, 262);   // ships in reserve, bottom left of the field
-    text("Moonbase", 405, 16, { size: 12.5, color: "#ffb347" });
-    text("Defender", 405, 31, { size: 12.5, color: "#5ae6c0" });
+    text("Moonbase", 421, 41, { size: 12.5, color: "#ffb347" });
+    text("Defender", 421, 55, { size: 12.5, color: "#5ae6c0" });
     if (!Input.touchMode) {
       MB_ALIENS.forEach((t, i) => { ctx.drawImage(t.img[0], 382, 70 + i * 18); text("= " + t.pts, 404, 75 + i * 18, { align: "left" }); });
       text("Left", 421, 165, { color: "#b3b3d9" }); text(String(this.alive), 421, 180, { size: 16 });
       text("\u2190 \u2192  move", 421, 227, { size: 11, color: "#8c8cb3" });
       text("Space  shoot", 421, 240, { size: 11, color: "#8c8cb3" });
     } else {
-      text("Left: " + this.alive, 421, 52, { color: "#b3b3d9" });
+      text("Left: " + this.alive, 421, 74, { color: "#b3b3d9" });
       if (this.state !== "name") Pads.drawSpace();
     }
   }
