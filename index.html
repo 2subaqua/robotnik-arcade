@@ -2530,9 +2530,11 @@ class Space extends Game {
       rect(Math.floor(s.x), Math.floor(s.y), 1, 1, css([v, v, Math.min(1, v + 0.1)]));
     }
     // The planet is solid: a clean round edge with a thin glow of atmosphere.
+    // The planet stops at the ground line, so nothing of it shows below the cannon's floor.
     const px = LEFT - 30, py = 400, pr = 230;
+    ctx.save(); ctx.beginPath(); ctx.rect(LEFT, 0, 240, 252); ctx.clip();
     roundGlow(px, py, pr);
-    ctx.save(); ctx.beginPath(); ctx.arc(px, py, pr, 0, TAU); ctx.clip();
+    ctx.beginPath(); ctx.arc(px, py, pr, 0, TAU); ctx.clip();
     ctx.drawImage(earthLimb(), LEFT, 0);
     ctx.restore();
     rect(LEFT, 252, 240, 1, "#4df299");
