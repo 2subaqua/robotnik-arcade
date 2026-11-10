@@ -1609,9 +1609,10 @@ function roundGlow(x, y, r) {
   }
 }
 let planetSliceCv = null;
-function planetSlice() {                 // 240 x 252 at 3x resolution for a smooth edge
+const PLANET_H = 460;                    // tall enough to reach under the controls on a phone held upright
+function planetSlice() {                 // 240 x PLANET_H at 3x resolution for a smooth edge
   if (planetSliceCv) return planetSliceCv;
-  const k = 3, c = document.createElement("canvas"); c.width = 240 * k; c.height = 252 * k;
+  const k = 3, c = document.createElement("canvas"); c.width = 240 * k; c.height = PLANET_H * k;
   const g = c.getContext("2d"), px = -30, py = 400, pr = 230;
   g.scale(k, k);
   for (const [w, a] of [[7, 0.07], [4.5, 0.12], [2.5, 0.2], [1.2, 0.5]]) {
@@ -1625,10 +1626,10 @@ function planetSlice() {                 // 240 x 252 at 3x resolution for a smo
 let earthLimbCv = null;
 function earthLimb() {
   if (earthLimbCv) return earthLimbCv;
-  const c = document.createElement("canvas"); c.width = 240; c.height = 270;
-  const g = c.getContext("2d"), img = g.createImageData(240, 270), cx = -30, cy = 400, R = 230;
+  const c = document.createElement("canvas"); c.width = 240; c.height = PLANET_H;
+  const g = c.getContext("2d"), img = g.createImageData(240, PLANET_H), cx = -30, cy = 400, R = 230;
   const soft = (a, b, v) => { const k = clamp((v - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };
-  for (let y = 0; y < 270; y++) for (let x = 0; x < 240; x++) {
+  for (let y = 0; y < PLANET_H; y++) for (let x = 0; x < 240; x++) {
     const d = Math.hypot(x - cx, y - cy), edge = R - d;     // positive inside the planet
     const v = Math.sin(x * 0.05 + y * 0.03) + Math.sin(y * 0.07 - x * 0.04 + 1) * 0.8 + Math.sin(x * 0.13 + y * 0.11) * 0.3;
     const land = v > 0.35 ? [40, 110, 62] : [24, 62, 128];
@@ -2067,6 +2068,14 @@ class Space extends Game {
     this.booms.forEach(b => this.drawBoom(b));
     this.drawFloats(14);
     ctx.restore();
+    if (View.portrait && !this.earth && !(this instanceof Moonbase)) {
+      const bottom = Math.min(View.bottom, PLANET_H);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(planetSlice(), 0, 252 * 3, 720, (bottom - 252) * 3, LEFT, 252, 240, bottom - 252);
+      ctx.imageSmoothingEnabled = false;
+      rect(LEFT, 252, 240, 1, "#4df299");
+      rect(View.left, 270, View.right - View.left, View.bottom - 270, "rgba(23,13,41,.5)");   // the control panel, half see-through
+    }
     this.drawPanels();
     if (this.state === "splash" || this.state === "saved") this.drawSplash();
     if (this.dim) rect(LEFT, 0, 240, 252, "rgba(3,0,10,.8)");
@@ -2539,7 +2548,7 @@ class Space extends Game {
     // The planet is a ready-made picture that ends at the ground line, so nothing of it
     // can reach outside the field (Safari did not always respect the clip for the glow).
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(planetSlice(), LEFT, 0, 240, 252);
+    ctx.drawImage(planetSlice(), 0, 0, 720, 252 * 3, LEFT, 0, 240, 252);
     ctx.imageSmoothingEnabled = false;
     rect(LEFT, 252, 240, 1, "#4df299");
   }
