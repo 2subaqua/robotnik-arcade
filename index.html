@@ -1616,6 +1616,20 @@ function roundGlow(x, y, r) {
     ctx.beginPath(); ctx.arc(x, y, r + w / 2, 0, TAU); ctx.strokeStyle = `rgba(120,185,255,${a})`; ctx.lineWidth = w; ctx.stroke();
   }
 }
+let planetSliceCv = null;
+function planetSlice() {                 // 240 x 252 at 3x resolution for a smooth edge
+  if (planetSliceCv) return planetSliceCv;
+  const k = 3, c = document.createElement("canvas"); c.width = 240 * k; c.height = 252 * k;
+  const g = c.getContext("2d"), px = -30, py = 400, pr = 230;
+  g.scale(k, k);
+  for (const [w, a] of [[7, 0.07], [4.5, 0.12], [2.5, 0.2], [1.2, 0.5]]) {
+    g.beginPath(); g.arc(px, py, pr + w / 2, 0, TAU); g.strokeStyle = `rgba(120,185,255,${a})`; g.lineWidth = w; g.stroke();
+  }
+  g.save(); g.beginPath(); g.arc(px, py, pr, 0, TAU); g.clip();
+  g.imageSmoothingEnabled = false; g.drawImage(earthLimb(), 0, 0);
+  g.restore();
+  return planetSliceCv = c;
+}
 let earthLimbCv = null;
 function earthLimb() {
   if (earthLimbCv) return earthLimbCv;
@@ -2530,13 +2544,11 @@ class Space extends Game {
       rect(Math.floor(s.x), Math.floor(s.y), 1, 1, css([v, v, Math.min(1, v + 0.1)]));
     }
     // The planet is solid: a clean round edge with a thin glow of atmosphere.
-    // The planet stops at the ground line, so nothing of it shows below the cannon's floor.
-    const px = LEFT - 30, py = 400, pr = 230;
-    ctx.save(); ctx.beginPath(); ctx.rect(LEFT, 0, 240, 252); ctx.clip();
-    roundGlow(px, py, pr);
-    ctx.beginPath(); ctx.arc(px, py, pr, 0, TAU); ctx.clip();
-    ctx.drawImage(earthLimb(), LEFT, 0);
-    ctx.restore();
+    // The planet is a ready-made picture that ends at the ground line, so nothing of it
+    // can reach outside the field (Safari did not always respect the clip for the glow).
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(planetSlice(), LEFT, 0, 240, 252);
+    ctx.imageSmoothingEnabled = false;
     rect(LEFT, 252, 240, 1, "#4df299");
   }
   drawShield(s) { ctx.drawImage(s.cv, s.x, s.y); }
