@@ -179,7 +179,8 @@ const LEVELS = {
     { patrol: true, stage: 2, length: 2300, gap: [150, 260], waves: 3 },
     { patrol: true, stage: 3, length: 2600, gap: [130, 240], waves: 4 },
     { patrol: true, stage: 4, length: 2900, gap: [115, 220], waves: 4 },
-    { patrol: true, stage: 5, length: 3200, gap: [100, 200], waves: 5 },    // the last level (a boss comes later)
+    { patrol: true, stage: 5, length: 3200, gap: [100, 200], waves: 7 },
+    { patrol: true, stage: 6, tank: true, waves: 0 },    // the boss: a tank on tracks. The last level (for now).
   ],
 };
 
@@ -219,7 +220,7 @@ const Save = (() => {
 const Sound = {
   ac: null, master: null, buf: {}, live: {},
   // Original volume_db from the Godot scenes, as gain.
-  vol: { hop: -6, gel: -8, boomChip: -4, boomArcade: -4, boomBaboom: -4, cheer: -2, victory: -7, defeat: -7, moontheme: -9, efire: -4, eboom: -3, bossfire: -4, bossengine: -6, mb_rocket: -9, mb_beep: -8, mb_fire: 0, mb_shoot: 4, mb_march1: -5, mb_march2: -5, mb_march3: -5, mb_march4: -5, mb_ufo: -3, mb_crash: -6, fall: -4, lift: -4, drop: -8, march1: -2, march2: -2, march3: -2, march4: -2, fire: -8, ufo: -6 },
+  vol: { hop: -6, gel: -8, boomChip: -4, boomArcade: -4, boomBaboom: -4, cheer: -2, victory: -7, defeat: -7, moontheme: -6, efire: -4, eboom: -3, bossfire: -4, bossengine: -6, mb_rocket: -9, mb_beep: -8, mb_fire: 0, mb_shoot: 4, mb_march1: -5, mb_march2: -5, mb_march3: -5, mb_march4: -5, mb_ufo: -3, mb_crash: -6, fall: -4, lift: -4, drop: -8, march1: -2, march2: -2, march3: -2, march4: -2, fire: -8, ufo: -6 },
   init(data) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -823,7 +824,7 @@ class Game {
     this.after(wait, () => { this.level++; this.msg = null; this.jobs = []; this.floats = []; this.build(); this.ready(); });
   }
   finish() {
-    if (this.score <= Save.hs(this.hsId).score) { go(menu); return; }
+    if (this.test || this.score <= Save.hs(this.hsId).score) { go(menu); return; }
     this.state = "name"; this.dim = true; this.msg = null;
     this.snd("win");
     const start = (Save.d.last + "   ").slice(0, 3);
@@ -2830,6 +2831,10 @@ class Moonbase extends Space {
     this.scroll = 0; this.bx = 170; this.by = GROUND_Y; this.vy = 0; this.air = false;
     this.ups = []; this.fwd = null; this.shotCD = 0; this.bombs = [];
     this.waveT = 4; this.obstacles = []; this.safeUntil = 0;
+    this.mother = null; this.motherT = rnd(8, 12);
+    this.tank = c.tank ? { tw: 150, v: 70, fireT: 2.5, mineT: 4, cur: 0, dying: 0, boomT: 0, smokeT: 0, smoke: [],
+      parts: [{ name: "barrel", label: "Gun", hp: 6, max: 6, flash: 0 }, { name: "turret", label: "Turret", hp: 10, max: 10, flash: 0 }, { name: "engine", label: "Engine", hp: 14, max: 14, flash: 0 }] } : null;
+    if (c.tank) return;
     let x = 380;
     while (x < c.length - 120) {             // craters and mounds, never too close to each other
       const crater = Math.random() < 0.45;
@@ -2868,7 +2873,9 @@ class Moonbase extends Space {
     if (this.state === "name") { Input.touch = {}; this.updateName(); return; }
     Input.touch = Input.touchMode ? Pads.readPatrol() : {};
     this.updateEnemies(dt);
+    this.updateMother(dt);
     this.updateBombs(dt);
+    if (this.tank) this.updateTank(dt);
     if (this.state !== "play") return;
     const c = this.c;
     // Back and forward change the speed; up (or B) jumps.
@@ -2886,13 +2893,13 @@ class Moonbase extends Space {
     if (Input.just.a && this.shotCD <= 0 && this.ups.length < 3) {
       this.shotCD = 0.22; this.flash = 0;
       this.ups.push({ x: this.bx - 2, y: this.by - 18 });
-      if (!this.fwd) this.fwd = { x: this.bx + 15, y: this.by - 9, left: 120 };
+      if (!this.fwd) this.fwd = { x: this.bx + 15, y: this.by - 9, h: this.groundAt(this.worldX) - this.by + 9, left: 120 };
       this.snd("shoot");
     }
     for (const s of this.ups) s.y -= 270 * dt;
     this.ups = this.ups.filter(s => s.y > -10 && !this.upHits(s));
     if (this.fwd) { const f = this.fwd, v = 300 * dt; f.x += v; f.left -= v;
-      f.y = this.groundAt(this.scroll + f.x - LEFT) - 9;                          // skims along the hills
+      f.y = this.groundAt(this.scroll + f.x - LEFT) - f.h;                        // skims along the hills
       if (f.left <= 0 || f.x > RIGHT || this.fwdHits(f)) this.fwd = null; }
     // Craters and mounds.
     const wx = this.worldX;
@@ -2906,6 +2913,15 @@ class Moonbase extends Space {
     const r = { x: s.x - 1, y: s.y - 4, w: 3, h: 8 };
     for (let i = 0; i < this.aliens.length; i++) { const a = this.aliens[i]; if (a && overlap(r, this.patrolAlienRect(a))) { this.patrolKill(i); return true; } }
     for (const b of this.bombs) if (overlap(r, { x: b.x - 3, y: b.y - 3, w: 6, h: 6 })) { b.dead = true; this.boom(b.x, b.y, "red"); return true; }
+    const m = this.mother;
+    if (m && overlap(r, { x: m.x - 8, y: m.y - 4, w: 16, h: 8 })) {
+      const p = pick([100, 150, 300]);
+      this.addScore(p); this.float(String(p), m.x, m.y, 0.8);
+      this.boom(m.x, m.y, "big"); this.snd("ufodie");
+      this.mother = null; Sound.stop("mother");
+      return true;
+    }
+    if (this.tank && this.hitTank(r)) return true;
     return false;
   }
   fwdHits(f) {
@@ -2920,6 +2936,7 @@ class Moonbase extends Space {
       }
     }
     for (let i = 0; i < this.aliens.length; i++) { const a = this.aliens[i]; if (a && overlap(r, this.patrolAlienRect(a))) { this.patrolKill(i); return true; } }
+    if (this.tank && this.hitTank(r)) return true;
     return false;
   }
   patrolAlienRect(a) { return { x: a.x - 8, y: a.y - 5, w: 16, h: 10 }; }
@@ -2956,15 +2973,136 @@ class Moonbase extends Space {
     const br = this.buggyRect();
     for (const b of this.bombs) {
       if (b.dead) continue;
-      b.y += 95 * dt;
+      if (b.g) { b.vy += b.g * dt; b.x += b.vx * dt; }
+      b.y += (b.vy || 95) * dt;
       if (this.state === "play" && this.t > this.safeUntil && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, br)) { b.dead = true; this.crash(false); continue; }
       const wxb = this.scroll + b.x - LEFT, gb = this.groundAt(wxb);
       if (b.y >= gb) {                          // a bomb leaves a small crater, unless it is right under the buggy
-        b.dead = true; this.boom(b.x, gb - 3, "red");
+        b.dead = true;
+        if (b.kind) {                           // the mothership's bombs and the tank's shells: a big bang but no crater
+          this.boom(b.x, gb - 5, "big");
+          if (b.kind === "mother") this.snd("ufodie"); else Sound.play("eboom", false, 1, "eboom" + Math.floor(rnd(0, 3)));
+          continue;
+        }
+        this.boom(b.x, gb - 3, "red");
         if (Math.abs(b.x - this.bx) > 34 && !this.obstacles.some(o => Math.abs(o.x - wxb) < 40)) this.obstacles.push({ kind: "crater", small: true, x: wxb - 7, w: 14 });
       }
     }
     this.bombs = this.bombs.filter(b => !b.dead);
+  }
+  // From level 6 the mothership sometimes passes over and drops big bombs.
+  updateMother(dt) {
+    const m = this.mother;
+    if (!m) {
+      if (this.state === "play" && this.c.stage >= 2 && !this.tank && (this.motherT -= dt) <= 0) {
+        this.motherT = rnd(14, 20) - this.c.stage;
+        const d = pick([-1, 1]);
+        this.mother = { d, x: d > 0 ? LEFT - 10 : RIGHT + 10, y: 36, bombT: rnd(0.6, 1.2) };
+        Sound.play(this.prefix + "ufo", true, 1, "mother");
+      }
+      return;
+    }
+    if (this.state !== "play") { if (Sound.live.mother) Sound.stop("mother"); return; }
+    if (!Sound.live.mother) Sound.play(this.prefix + "ufo", true, 1, "mother");
+    m.x += m.d * 42 * dt;
+    if ((m.bombT -= dt) <= 0 && m.x > LEFT + 8 && m.x < RIGHT - 8) {
+      m.bombT = rnd(1.1, 1.8);
+      this.bombs.push({ x: m.x, y: m.y + 5, vy: 105, kind: "mother" });
+    }
+    if (m.x < LEFT - 14 || m.x > RIGHT + 14) { this.mother = null; Sound.stop("mother"); }
+  }
+  /* ---- The boss: a tank on tracks driving away to the right. Shoot the gun, then the turret, then the engine. ---- */
+  get tankX() { return LEFT + this.tank.tw - this.scroll; }
+  tankRects() {
+    const k = this.tank, tx = Math.round(this.tankX), gy = Math.round(this.groundAt(k.tw + 36));
+    return {
+      barrel: { x: tx - 34, y: gy - 36, w: 56, h: 6 }, turret: { x: tx + 20, y: gy - 42, w: 36, h: 16 },
+      engine: { x: tx - 3, y: gy - 28, w: 20, h: 18 }, hull: { x: tx, y: gy - 27, w: 72, h: 15 }, tracks: { x: tx - 3, y: gy - 13, w: 78, h: 13 },
+    };
+  }
+  hitTank(r) {
+    const k = this.tank;
+    if (k.dying) return false;
+    const R2 = this.tankRects(), p = k.parts[k.cur];
+    if (overlap(r, R2[p.name])) {
+      p.hp--; p.flash = 0.12;
+      this.boom(r.x + r.w / 2, r.y + r.h / 2, "red");
+      Sound.play("boomChip", false, 1.3, "enemyboom" + (this.boomVoice = ((this.boomVoice || 0) + 1) % 3));
+      if (p.hp <= 0) {
+        const q = R2[p.name];
+        for (let i = 0; i < 4; i++) this.after(i * 0.12, () => this.boom(q.x + rnd(0, q.w), q.y + rnd(0, q.h), "big"));
+        Sound.play("eboom", false, 1, "eboom0");
+        this.addScore(1000); this.float("1000", q.x + q.w / 2, q.y - 6, 1.2);
+        if (++k.cur >= k.parts.length) this.tankDown();
+      }
+      return true;
+    }
+    for (const n of ["turret", "engine", "hull", "tracks"].concat(k.cur === 0 ? [] : [])) {
+      if (overlap(r, R2[n])) { this.boom(r.x + r.w / 2, r.y + r.h / 2, "red"); Sound.play("boomChip", false, 2, "clank"); return true; }   // armour: no effect
+    }
+    return false;
+  }
+  tankDown() {
+    const k = this.tank;
+    k.dying = 2.4;
+    this.bombs = this.bombs.filter(b => b.kind !== "shell");
+  }
+  updateTank(dt) {
+    const k = this.tank, playing = this.state === "play";
+    for (const p of k.parts) p.flash = Math.max(0, p.flash - dt);
+    k.smoke = k.smoke.filter(s => (s.t += dt) < 1.2);
+    for (const s of k.smoke) { s.x -= 12 * dt; s.y -= 14 * dt; }
+    if (k.dying) {
+      k.dying -= dt; k.boomT -= dt;
+      const R2 = this.tankRects();
+      if (k.boomT <= 0 && k.dying > 0.4) {
+        k.boomT = 0.14;
+        this.boom(R2.tracks.x + rnd(0, 78), R2.turret.y + rnd(0, 40), "big");
+        Sound.play("eboom", false, 1, "eboom" + Math.floor(rnd(0, 3)));
+      }
+      if (k.dying <= 0 && this.state === "play") this.tankBeaten();
+      return;
+    }
+    // Drive: speed swings a little, faster with each part lost. It never gets away, and the buggy can't ram it.
+    k.v = 72 + 20 * Math.sin(this.t * 0.7) + k.cur * 10 + (k.cur === 2 ? 18 * Math.sin(this.t * 2.3) : 0);
+    k.tw += k.v * dt;
+    k.tw = clamp(k.tw, this.scroll + this.bx + 16 - LEFT, this.scroll + RIGHT - 82 - LEFT);
+    if ((k.smokeT -= dt) <= 0) { k.smokeT = k.cur === 2 ? 0.08 : 0.25; const R2 = this.tankRects(); k.smoke.push({ x: R2.engine.x + 2, y: R2.engine.y - 2, t: 0 }); }
+    if (!playing) return;
+    const R2 = this.tankRects(), gap = R2.engine.x - (this.bx + 12);
+    if (k.cur === 0 && (k.fireT -= dt) <= 0) {               // the gun lobs shells back at the buggy
+      k.fireT = rnd(1.6, 2.4);
+      this.bombs.push({ x: R2.barrel.x, y: R2.barrel.y + 3, vx: -rnd(60, 110), vy: -rnd(30, 70), g: 170, kind: "shell" });
+      this.boom(R2.barrel.x - 2, R2.barrel.y + 3, "red"); Sound.play("bossfire");
+    }
+    if ((k.mineT -= dt) <= 0 && gap > 70) {                   // and drops mines behind it
+      k.mineT = rnd(3.5, 5) - k.cur;
+      this.obstacles.push({ kind: "mound", x: k.tw - 18, w: 14 });
+    }
+  }
+  tankBeaten() {
+    this.state = "saved";
+    this.tank = null; this.bombs = []; this.addScore(5000);
+    Sound.stop("music"); Sound.stop("mother");
+    Sound.play("cheer");
+    this.after(4.5, () => { this.state = "win"; this.levelDone("The tank is destroyed!", 2.5); });
+  }
+  drawTank() {
+    const k = this.tank, R2 = this.tankRects(), t = R2.tracks, h = R2.hull, e = R2.engine, tu = R2.turret, b = R2.barrel;
+    const dead = i => k.cur > i, col = (i, c, burnt) => k.parts[i].flash > 0 ? "#ffffff" : dead(i) ? burnt : c;
+    for (const s of k.smoke) { const a = 1 - s.t / 1.2; ctx.beginPath(); ctx.arc(s.x, s.y, 2 + s.t * 5, 0, TAU); ctx.fillStyle = `rgba(${k.cur === 2 ? "60,50,60" : "150,150,160"},${0.5 * a})`; ctx.fill(); }
+    if (!dead(0)) { rect(b.x, b.y, b.w, b.h, col(0, "#8d93a3", "#333")); rect(b.x, b.y, b.w, 1, "#c4c9d6"); rect(b.x - 3, b.y - 1, 4, b.h + 2, col(0, "#6b7080", "#333")); }
+    else rect(tu.x - 6, b.y, 8, b.h, "#2a2228");                                                        // a stump
+    ctx.beginPath(); ctx.ellipse(tu.x + tu.w / 2, tu.y + tu.h, tu.w / 2, tu.h, 0, Math.PI, 0); ctx.fillStyle = col(1, "#c9503f", "#3a2a2e"); ctx.fill();
+    rect(tu.x + 14, tu.y + 1, 9, 3, dead(1) ? "#1c1418" : "#e8806a");
+    rect(h.x, h.y, h.w, h.h, "#b8423a"); rect(h.x, h.y, h.w, 2, "#e86a50"); rect(h.x + h.w - 6, h.y + 2, 6, h.h - 2, "#8e2f2a");
+    rect(e.x, e.y, e.w, e.h, col(2, "#8d93a3", "#2a2228"));
+    for (let i = 0; i < 4; i++) rect(e.x + 3, e.y + 4 + i * 3, e.w - 6, 1, dead(2) ? "#120c10" : "#4a4e5c");
+    rect(e.x + 4, e.y - 5, 3, 5, "#6b7080");                                                             // exhaust pipe
+    rounded(t.x, t.y, t.w, t.h, 6); ctx.fillStyle = "#2b2e3d"; ctx.fill();
+    const roll = mod(this.scroll * 0 + k.tw, 6);
+    for (let x = t.x + 3 - roll + 6; x < t.x + t.w - 3; x += 6) rect(x, t.y, 2, 1, "#6b7080");
+    for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.arc(t.x + 8 + i * 12.4, t.y + 7, 4, 0, TAU); ctx.fillStyle = "#6b7080"; ctx.fill(); rect(t.x + 7 + i * 12.4, t.y + 6, 2, 2, "#c4c9d6"); }
   }
   crash(fell) {
     if (this.state !== "play" || this.t < this.safeUntil) return;
@@ -2972,6 +3110,7 @@ class Moonbase extends Space {
     this.boom(this.bx, this.by - 8, "big");
     this.snd("playerdie");
     this.bombs = []; this.ups = []; this.fwd = null;
+    this.mother = null; Sound.stop("mother");
     this.after(1.6, () => {
       if (this.lives <= 0) { this.lose(); return; }
       // Back up a little and clear the road right ahead.
@@ -2984,7 +3123,7 @@ class Moonbase extends Space {
   }
   stageDone() {
     this.state = "win";
-    Sound.stop("music");
+    Sound.stop("music"); Sound.stop("mother"); this.mother = null;
     this.addScore(500 * this.c.stage);
     this.float("Stage bonus " + 500 * this.c.stage, 240, 120, 2.5);
     Sound.play("victory");
@@ -3023,17 +3162,26 @@ class Moonbase extends Space {
     }
     for (const s of this.ups) { rect(Math.round(s.x) - 1, Math.round(s.y) - 4, 2, 7, "#bfe6ff"); rect(Math.round(s.x) - 0.5, Math.round(s.y) - 3, 1, 5, "#fff"); }
     if (this.fwd) { rect(Math.round(this.fwd.x) - 4, Math.round(this.fwd.y) - 1, 8, 2, "#ffb347"); rect(Math.round(this.fwd.x), Math.round(this.fwd.y) - 1, 3, 2, "#fff3b0"); }
+    if (this.tank) this.drawTank();
+    if (this.mother) sprite(this.ufoImage, (Math.floor(this.t * 6) % 2) * 16, 0, 16, 8, this.mother.x - 8, this.mother.y - 4);
     for (const a of this.aliens) if (a) ctx.drawImage(MB_ALIENS[a.row % 3].img[Math.floor(this.t * 5) % 2], Math.round(a.x) - 8, Math.round(a.y) - 5);
     for (const b of this.bursts) sprite(tint(Img.burst, b.c), 0, 0, 13, 9, b.x - 6.5, b.y - 4.5);
-    for (const b of this.bombs) { glow(b.x, b.y, 5, 5, "rgba(255,120,60,A)", 0.6); ctx.beginPath(); ctx.arc(b.x, b.y, 2, 0, TAU); ctx.fillStyle = "#ffb347"; ctx.fill(); }
+    for (const b of this.bombs) {
+      const big = b.kind ? 3 : 2;
+      glow(b.x, b.y, 3 * big, 3 * big, b.kind === "mother" ? "rgba(255,80,80,A)" : "rgba(255,120,60,A)", 0.6);
+      ctx.beginPath(); ctx.arc(b.x, b.y, big, 0, TAU); ctx.fillStyle = b.kind === "mother" ? "#ff6a5a" : b.kind === "shell" ? "#e8e8f0" : "#ffb347"; ctx.fill();
+    }
     this.booms.forEach(b => this.drawBoom(b));
+    if (this.c.tank) this.drawTankBar();
     // Progress: how far along the five stages.
+    else {
     const done = this.level - 4 + Math.min(1, this.worldX / this.c.length);
     rect(LEFT + 20, 6, 200, 6, "rgba(255,255,255,.12)"); rect(LEFT + 20, 6, 200 * done / 5, 6, "#ff5a6a");
     for (let k = 1; k < 5; k++) rect(LEFT + 20 + k * 40, 5, 1, 8, "#f4ecff");
     for (let k = 0; k < 5; k++) text(String(k + 1), LEFT + 40 + k * 40, 19, { size: 9, color: k < this.c.stage - 1 ? "#ffb3b3" : "#c9bde6" });
+    }
     this.drawFloats(14);
-    if (this.state === "splash") this.drawPatrolSplash();
+    if (this.state === "splash" || this.state === "saved") this.drawPatrolSplash();
     ctx.restore();
     const life = (x, y) => ctx.drawImage(buggyArt(0), Math.round(x), Math.round(y) - 1, 16, 10);
     life.w = 16;
@@ -3041,17 +3189,26 @@ class Moonbase extends Space {
     text("Moonbase", 421, 41, { size: 12.5, color: "#ffb347" });
     text("Defender", 421, 55, { size: 12.5, color: "#5ae6c0" });
     if (!Input.touchMode) {
-      text("Stage " + this.c.stage + " / 5", 421, 80, { color: "#b3b3d9" });
+      text(this.c.tank ? "Boss!" : "Stage " + this.c.stage + " / 5", 421, 80, { color: this.c.tank ? "#ff7a8a" : "#b3b3d9" });
       text("\u2190 \u2192  speed", 421, 214, { size: 11, color: "#8c8cb3" });
       text("\u2191  jump", 421, 227, { size: 11, color: "#8c8cb3" });
       text("Space  shoot", 421, 240, { size: 11, color: "#8c8cb3" });
     } else {
-      text("Stage " + this.c.stage + " / 5", 421, 74, { color: "#b3b3d9" });
+      text(this.c.tank ? "Boss!" : "Stage " + this.c.stage + " / 5", 421, 74, { color: this.c.tank ? "#ff7a8a" : "#b3b3d9" });
       if (this.state !== "name") Pads.drawPatrol();
     }
     if (this.dim) rect(LEFT, 0, 240, H, "rgba(3,0,10,.8)");
     this.drawMessage(130);
     if (this.state === "name") this.drawName();
+  }
+  drawTankBar() {                          // the boss's three parts, in the order they must be destroyed
+    const k = this.tank;
+    k && k.parts.forEach((p, i) => {
+      const x = LEFT + 12 + i * 74, on = i === k.cur;
+      rect(x, 6, 68, 5, "rgba(255,255,255,.12)");
+      rect(x, 6, 68 * Math.max(0, p.hp) / p.max, 5, on ? "#ff5a6a" : "#7a5560");
+      text(p.label, x + 34, 19, { size: 9, color: p.hp <= 0 ? "#6c6080" : on ? "#ffd0d0" : "#c9bde6" });
+    });
   }
   drawPatrolSplash() {
     rect(LEFT, 0, 240, H, "#02010a");
@@ -3059,8 +3216,11 @@ class Moonbase extends Space {
     ctx.drawImage(patrolLayer("far"), 0, 0, 480, 110, LEFT, 70, 240, 55);
     rect(LEFT, 125, 240, 40, "#f29a4c"); rect(LEFT, 125, 240, 2, "#fff2a8");
     ctx.drawImage(buggyArt(Math.floor(this.t * 8) % 2), LEFT + 40 + mod(this.t * 50, 200), 108, 28 * 1.2, 18 * 1.2);
-    text("The base is safe!", 240, 195, { size: 20, w: 800, color: "#fff27f", outline: "#14082a" });
-    text("To the moon buggy!", 240, 222, { size: 20, w: 800, color: "#5ae6c0", outline: "#14082a" });
+    if (this.state === "saved") text("M\u00e5nytan \u00e4r rensad!", 240, 205, { size: 22, w: 800, color: "#fff27f", outline: "#14082a" });
+    else {
+      text("The base is safe!", 240, 195, { size: 20, w: 800, color: "#fff27f", outline: "#14082a" });
+      text("To the moon buggy!", 240, 222, { size: 20, w: 800, color: "#5ae6c0", outline: "#14082a" });
+    }
   }
   get winText() { return "The base is safe!"; }
   get ufoImage() { return mbUfo(); }
@@ -3327,6 +3487,18 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden && scene !== menu) { paused = true; pauseSel = 0; pauseSaved = false; Sound.stopAll(); }
 });
 
+// The Cheese Chase level editor opens the game as ...#test=<level as base64 JSON> to try a level.
+function startFromHash() {
+  const m = /^#test=(.+)$/.exec(location.hash);
+  if (!m) return;
+  try {
+    const json = new TextDecoder().decode(Uint8Array.from(atob(m[1].replace(/-/g, "+").replace(/_/g, "/")), ch => ch.charCodeAt(0)));
+    const lv = JSON.parse(json), g = new Cheese(Array.isArray(lv) ? lv : [lv]);
+    g.test = true; go(g);
+  } catch (e) { console.error(e); }
+  try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {}
+}
+addEventListener("hashchange", startFromHash);
 function boot(A) {
   View.resize();
   prepareMoonbase();
@@ -3335,7 +3507,7 @@ function boot(A) {
   let left = names.length;
   names.forEach(n => {
     const i = new Image();
-    i.onload = i.onerror = () => { if (!--left) { last = performance.now(); requestAnimationFrame(frame); } };
+    i.onload = i.onerror = () => { if (!--left) { startFromHash(); last = performance.now(); requestAnimationFrame(frame); } };
     i.src = "data:image/png;base64," + A.img[n];
     Img[n] = i;
   });
