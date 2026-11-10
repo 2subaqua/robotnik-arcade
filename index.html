@@ -1924,6 +1924,7 @@ class Space extends Game {
       this.boom(this.ufo.x, this.ufo.y, "big");
       this.snd("ufodie");
       this.float(String(p), this.ufo.x, this.ufo.y, 0.8);
+      if (this.id === "moonbase") { this.lives++; this.float("Extra life!", this.ufo.x, this.ufo.y + 14, 1.4); }   // Moonbase: the mothership gives an extra life
       this.removeUfo();
       return true;
     }
@@ -2835,6 +2836,18 @@ class Moonbase extends Space {
   }
   update(dt) { if (this.patrol) this.updatePatrol(dt); else super.update(dt); }
   draw() { if (this.patrol) this.drawPatrolLevel(); else super.draw(); }
+  // Extra lives for points: at 5 000, then every 10 000 (15 000, 25 000 ...).
+  addScore(n) {
+    const lifeCount = sc => sc < 5000 ? 0 : 1 + Math.floor((sc - 5000) / 10000);
+    const before = lifeCount(this.score);
+    super.addScore(n);
+    const gained = lifeCount(this.score) - before;
+    if (gained > 0) {
+      this.lives += gained;
+      this.float("Extra life!", 240, 150, 1.6);
+      Sound.play(Sound.buf.mb_luckygot ? "mb_luckygot" : "mb_beep", false, 1, "fanfare");   // a short rising chip fanfare
+    }
+  }
   saveData() { return this.patrol ? { patrol: true } : super.saveData(); }   // a patrol stage starts over
   loadData(d) { if (d.patrol) { this.splashed = this.level; return; } super.loadData(d); }
   /* ---- Moon patrol ---- */
