@@ -960,7 +960,7 @@ function cheeseBackdrop() {
 
 class Cheese extends Game {
   constructor(levels) {
-    super("cheese", "Cheese Chase");
+    super("cheese", "Cheddar Bandit");
     if (levels) { this.randomLevels = levels; this.random = true; }
     this.lives = 4; this.build(); this.ready();
   }
@@ -974,11 +974,12 @@ class Cheese extends Game {
     rows.forEach((row, i) => [...row].forEach((ch, j) => { if (ch === "#") this.cells.push([i, j]); }));
     this.cells.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || a[0] - b[0]);   // back to front
     this.board = new Set(this.cells.map(key));
-    this.visited = new Set([key([0, 0])]); this.cheeses = new Map(); this.lifts = new Map();
+    this.start = this.cells[0];                   // the rat starts on the top cube (normally [0, 0])
+    this.visited = new Set([key(this.start)]); this.cheeses = new Map(); this.lifts = new Map();
     this.enemies = []; this.fx = []; this.riding = false; this.safeT = 0; this.celebrate = 0;
     this.gelT = c.gelFirst; this.catT = c.catFirst; this.catsOut = 0; this.riderLift = null;
     for (const cell of this.cells) {
-      if (!cell[0] && !cell[1]) continue;
+      if (same(cell, this.start)) continue;
       const p = this.pos(cell);
       this.cheeses.set(key(cell), { x: p[0], y: p[1], kind: "cheese", visible: true });
     }
@@ -988,7 +989,7 @@ class Cheese extends Game {
       const p = this.pos(cell);
       this.lifts.set(key(cell), { x: p[0], y: p[1] + 4 });
     });
-    this.rat = this.actor("rat", [0, 0]);
+    this.rat = this.actor("rat", this.start);
     // Lucky tile: every other level from level 2, once, at least 15 s in.
     this.bonus = null; this.bonusDone = false; this.cheeseTotal = this.cheeses.size;
     this.lucky = null; this.levelT = 0; this.luckyAt = (this.level + 1) % 2 === 0 ? rnd(15, 30) : Infinity;
@@ -1107,7 +1108,7 @@ class Cheese extends Game {
   }
   saveData() {
     return { cheese: [...this.cheeses.keys()], visited: [...this.visited], lifts: [...this.lifts.keys()],
-      rat: this.onBoard(this.rat.cell) ? this.rat.cell : [0, 0], levelT: this.levelT, luckyDone: this.luckyAt === Infinity, luckyAt: this.luckyAt, bonusDone: this.bonusDone };
+      rat: this.onBoard(this.rat.cell) ? this.rat.cell : this.start, levelT: this.levelT, luckyDone: this.luckyAt === Infinity, luckyAt: this.luckyAt, bonusDone: this.bonusDone };
   }
   loadData(d) {
     const left = new Set(d.cheese);
@@ -1175,7 +1176,7 @@ class Cheese extends Game {
     this.hop(r, cell, this.c.ratHop, 14, () => {
       r.busy = true;
       Sound.play("lift");
-      const a = this.pos([0, 0]), tx = a[0], ty = a[1] - 34, rx = r.x, ry = r.y, lx = l.x, ly = l.y;
+      const a = this.pos(this.start), tx = a[0], ty = a[1] - 34, rx = r.x, ry = r.y, lx = l.x, ly = l.y;
       this.tween(Math.max(1.2, Math.hypot(tx - rx, ty - ry) / 200), t => {
         const s = 0.5 - Math.cos(Math.PI * t) / 2;
         r.x = rx + (tx - rx) * s; r.y = ry + (ty - ry) * s;
@@ -1183,7 +1184,7 @@ class Cheese extends Game {
       }, () => {
         this.riderLift = null;
         r.z = 1;
-        this.hop(r, [0, 0], 0.3, 6, () => { r.z = 0; r.anim = "idle"; this.riding = false; });
+        this.hop(r, this.start, 0.3, 6, () => { r.z = 0; r.anim = "idle"; this.riding = false; });
       });
     });
   }
@@ -1286,7 +1287,7 @@ class Cheese extends Game {
     const r = this.rat;
     this.lives--;
     if (this.lives <= 0) { r.visible = false; this.lose(); return; }
-    const safe = this.safeCell(fell ? (this.cells.length > 36 ? r.from : [0, 0]) : r.cell), p = this.pos(safe);
+    const safe = this.safeCell(fell ? (this.cells.length > 36 ? r.from : this.start) : r.cell), p = this.pos(safe);
     r.cell = safe; r.x = p[0]; r.y = p[1]; r.z = 0; r.falling = false; r.busy = false; r.anim = "idle";
     this.after(0.6, () => { this.safeT = 1.2; this.state = "play"; });
   }
@@ -1378,8 +1379,8 @@ class Cheese extends Game {
     const life = (x, y) => sprite(Img.rat, 0, 0, 16, 12, x, y);
     life.w = 16;
     this.drawLeft("#d9bfff", life);
-    text("Cheese", 421, 41, { size: 13, color: "#ffd94d" });
-    text("Chase", 421, 55, { size: 13, color: "#ff7ad9" });
+    text("Cheddar", 421, 41, { size: 13, color: "#ffd94d" });
+    text("Bandit", 421, 55, { size: 13, color: "#ff7ad9" });
     if (!Input.touchMode) {
       sprite(Img.cheese, 0, 0, 12, 9, 380, 63); text("= 25", 400, 68, { align: "left" });
       sprite(tint(Img.jelly, "#ff7ad9"), 0, 0, 12, 12, 380, 82); text("watch out", 400, 88, { align: "left", color: "#ff9999" });
@@ -1407,34 +1408,137 @@ class Cheese extends Game {
    RANDOM CHEESE CHASE - 20 fresh levels: the classic first, then steadily
    bigger boards with more holes, lifts and enemies. Tune the numbers here.
    ========================================================================= */
-function randomMap(t) {
-  const s = Math.round(7 + t * 11), shape = t < 0.1 ? "square" : pick(["square", "rect", "L", "ring", "Z"]);
+/* ---- Random Cheese Chase levels: blobs with holes, mazes, rings, rooms and three letters ---- */
+const GLYPHS = {                          // a blocky 5 x 7 font where every stroke joins edge to edge
+  A: ["#####", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"], B: ["####.", "#..#.", "#..#.", "#####", "#...#", "#...#", "#####"],
+  C: ["#####", "#....", "#....", "#....", "#....", "#....", "#####"], D: ["####.", "#..##", "#...#", "#...#", "#...#", "#..##", "####."],
+  E: ["#####", "#....", "#....", "####.", "#....", "#....", "#####"], F: ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+  G: ["#####", "#....", "#....", "#.###", "#...#", "#...#", "#####"], H: ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+  J: ["..###", "...#.", "...#.", "...#.", "#..#.", "#..#.", "####."], K: ["#...#", "#..##", "#.##.", "###..", "#.##.", "#..##", "#...#"],
+  L: ["#....", "#....", "#....", "#....", "#....", "#....", "#####"], M: ["#...#", "##.##", "#####", "#.#.#", "#...#", "#...#", "#...#"],
+  N: ["#...#", "##..#", "###.#", "#.###", "#..##", "#...#", "#...#"], O: ["#####", "#...#", "#...#", "#...#", "#...#", "#...#", "#####"],
+  P: ["#####", "#...#", "#...#", "#####", "#....", "#....", "#...."], R: ["#####", "#...#", "#...#", "#####", "#.#..", "#.##.", "#..##"],
+  S: ["#####", "#....", "#....", "#####", "....#", "....#", "#####"], T: ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+  U: ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", "#####"], V: ["#...#", "#...#", "#...#", "#...#", "##.##", ".###.", "..#.."],
+  W: ["#...#", "#...#", "#.#.#", "#.#.#", "#.#.#", "#.#.#", "#####"], X: ["#...#", "##.##", ".###.", "..#..", ".###.", "##.##", "#...#"],
+  Y: ["#...#", "##.##", ".###.", "..#..", "..#..", "..#..", "..#.."], Z: ["#####", "...##", "..##.", ".##..", "##...", "#....", "#####"],
+};
+const grid = (h, w, v = false) => Array.from({ length: h }, () => Array(w).fill(v));
+const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+// A letter, each font pixel s x s cubes. Pixels that only touch at a corner get a joining cube so the rat can hop between them.
+function letterGrid(ch, s) {
+  const f = GLYPHS[ch].map(r => [...r].map(x => x === "#")), H = 7, W = 5, on = (i, j) => i >= 0 && j >= 0 && i < H && j < W && f[i][j];
+  for (let i = 0; i < H - 1; i++) for (let j = 0; j < W; j++) for (const dj of [-1, 1]) {
+    if (!on(i, j) || !on(i + 1, j + dj) || on(i, j + dj) || on(i + 1, j)) continue;
+    const a = [i, j + dj], b = [i + 1, j], far = p => Math.abs(p[0] - 3) + Math.abs(p[1] - 2);
+    const p = far(a) >= far(b) ? a : b; f[p[0]][p[1]] = true;
+  }
+  const g = grid(H * s, W * s);
+  for (let i = 0; i < H * s; i++) for (let j = 0; j < W * s; j++) g[i][j] = f[Math.floor(i / s)][Math.floor(j / s)];
+  return g;
+}
+// A maze of corridors (c cubes wide, walls one hole wide) with some extra openings so there are loops.
+function mazeGrid(cw, ch, c, loops) {
+  const g = grid(ch * (c + 1) - 1, cw * (c + 1) - 1), seen = grid(ch, cw), walls = [];
+  const fill = (i0, j0, h, w) => { for (let i = i0; i < i0 + h; i++) for (let j = j0; j < j0 + w; j++) g[i][j] = true; };
+  const st = [[0, 0]]; seen[0][0] = true; fill(0, 0, c, c);
+  while (st.length) {
+    const [i, j] = st[st.length - 1], nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => [i + a, j + b]).filter(([a, b]) => a >= 0 && b >= 0 && a < ch && b < cw && !seen[a][b]);
+    if (!nb.length) { st.pop(); continue; }
+    const [a, b] = pick(nb); seen[a][b] = true; st.push([a, b]);
+    fill(a * (c + 1), b * (c + 1), c, c);
+    fill(Math.min(i, a) * (c + 1) + (a !== i ? c : 0), Math.min(j, b) * (c + 1) + (b !== j ? c : 0), a !== i ? 1 : c, b !== j ? 1 : c);
+  }
+  for (let i = 0; i < ch; i++) for (let j = 0; j < cw; j++) for (const [a, b] of [[i + 1, j], [i, j + 1]]) if (a < ch && b < cw) walls.push([i, j, a, b]);
+  for (const [i, j, a, b] of walls) if (Math.random() < loops) fill(Math.min(i, a) * (c + 1) + (a !== i ? c : 0), Math.min(j, b) * (c + 1) + (b !== j ? c : 0), a !== i ? 1 : c, b !== j ? 1 : c);
+  return g;
+}
+// Square rings inside each other, joined by one short bridge each: a path to follow round and in.
+function ringsGrid(n, w) {
+  const size = n * (w + 1) * 2 - 1, g = grid(size, size);
+  for (let k = 0; k < n; k++) {
+    const o = k * (w + 1), e = size - 1 - o;
+    for (let i = o; i <= e; i++) for (let j = o; j <= e; j++) if (i < o + w || j < o + w || i > e - w || j > e - w) g[i][j] = true;
+    if (k < n - 1) {                            // a bridge to the next ring, on a random side
+      const side = ri(0, 3), at = ri(o + w + 1, e - w - 2);
+      for (let d = 0; d < Math.min(w, 2); d++) {
+        const p = o + w;                        // the gap row/column between this ring and the next
+        if (side === 0) g[p][at + d] = true; else if (side === 1) g[e - w][at + d] = true; else if (side === 2) g[at + d][p] = true; else g[at + d][e - w] = true;
+      }
+    }
+  }
+  return g;
+}
+// Rooms on a coarse grid, joined by narrow bridges.
+function roomsGrid(rw, rh, room, bridge) {
+  const step = room + 3, g = grid(rh * step - 3, rw * step - 3), cells = [];
+  for (let i = 0; i < rh; i++) for (let j = 0; j < rw; j++) {
+    const h = ri(room - 2, room), w = ri(room - 2, room), oi = i * step, oj = j * step;
+    for (let a = 0; a < h; a++) for (let b = 0; b < w; b++) g[oi + a][oj + b] = true;
+    cells.push([i, j, h, w]);
+  }
+  const at = (i, j) => cells[i * rw + j];
+  const link = (i, j, a, b) => {
+    const A = at(i, j), B = at(a, b);
+    if (a === i) { const r = i * step + ri(0, Math.min(A[2], B[2]) - bridge); for (let x = j * step; x < b * step + 1; x++) for (let d = 0; d < bridge; d++) g[r + d][x] = true; }
+    else { const c = j * step + ri(0, Math.min(A[3], B[3]) - bridge); for (let y = i * step; y < a * step + 1; y++) for (let d = 0; d < bridge; d++) g[y][c + d] = true; }
+  };
+  // a spanning tree, plus an extra bridge now and then
+  const inTree = new Set(["0,0"]), edges = [];
+  while (inTree.size < rw * rh) {
+    const opts = [];
+    for (const k of inTree) { const [i, j] = k.split(",").map(Number); for (const [a, b] of [[i + 1, j], [i - 1, j], [i, j + 1], [i, j - 1]]) if (a >= 0 && b >= 0 && a < rh && b < rw && !inTree.has(a + "," + b)) opts.push([i, j, a, b]); }
+    const e = pick(opts); inTree.add(e[2] + "," + e[3]); edges.push(e);
+  }
+  edges.forEach(([i, j, a, b]) => link(Math.min(i, a), Math.min(j, b), Math.max(i, a), Math.max(j, b)));
+  for (let k = 0; k < rw * rh / 3; k++) { const i = ri(0, rh - 1), j = ri(0, rw - 1); if (j + 1 < rw && Math.random() < 0.5) link(i, j, i, j + 1); else if (i + 1 < rh) link(i, j, i + 1, j); }
+  return g;
+}
+// The old generator: a square, rectangle, L, ring or Z with holes punched in it (always some holes).
+function blobGrid(t, scale) {
+  const s = Math.max(5, Math.round((7 + t * 9) * scale)), shape = pick(["square", "rect", "L", "ring", "Z", "plus"]);
   let w = s, h = s;
   if (shape === "rect") { w = Math.round(s * 1.6); h = Math.max(5, Math.round(s * 0.7)); }
   if (shape === "L" || shape === "Z") { w = Math.round(s * 1.4); h = Math.round(s * 1.2); }
-  const th = Math.max(4, Math.round(s * 0.45));
+  const th = Math.max(3, Math.round(s * 0.42));
   const inShape = (i, j) => {
     if (shape === "L") return i < th || j < th;
     if (shape === "ring") return i < th - 1 || j < th - 1 || i >= h - th + 1 || j >= w - th + 1;
     if (shape === "Z") return (i < th && j < w - th + 1) || (i >= h - th) || (j >= w - th && i >= th - 1 && i < h) || (j >= w - th && i < th);
+    if (shape === "plus") return Math.abs(i - (h - 1) / 2) <= th / 2 || Math.abs(j - (w - 1) / 2) <= th / 2;
     return true;
   };
   const g = Array.from({ length: h }, (_, i) => Array.from({ length: w }, (_, j) => inShape(i, j)));
-  // Holes, small and large, never right next to the start.
-  const blobs = Math.round(t * (w * h) / 34 + t * 3);
+  const blobs = Math.max(2, Math.round((0.3 + t) * (w * h) / 30));
   for (let b = 0; b < blobs; b++) {
-    const ci = Math.floor(Math.random() * h), cj = Math.floor(Math.random() * w), r = Math.floor(Math.random() * (1 + t * 1.9));
-    for (let i = ci - r; i <= ci + r; i++) for (let j = cj - r; j <= cj + r; j++) {
+    const ci = ri(1, h - 2), cj = ri(1, w - 2), r = ri(0, 1 + Math.round(t * 1.5));
+    for (let i = ci - r; i <= ci + r; i++) for (let j = cj - r; j <= cj + r; j++)
       if (i >= 0 && j >= 0 && i < h && j < w && Math.abs(i - ci) + Math.abs(j - cj) <= r && i + j > 2) g[i][j] = false;
-    }
   }
-  // Keep only what the rat can reach.
-  const seen = new Set(["0,0"]), q = [[0, 0]];
+  return g;
+}
+// Keep what the rat can reach from the top cube, cut empty edges, and describe the result.
+function finishGrid(g) {
+  const cells = [];
+  g.forEach((row, i) => row.forEach((v, j) => { if (v) cells.push([i, j]); }));
+  cells.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || a[0] - b[0]);
+  const st = cells[0], seen = new Set([key(st)]), q = [st];
   for (let n = 0; n < q.length; n++) for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const c = [q[n][0] + d[0], q[n][1] + d[1]];
-    if (c[0] >= 0 && c[1] >= 0 && c[0] < h && c[1] < w && g[c[0]][c[1]] && !seen.has(key(c))) { seen.add(key(c)); q.push(c); }
+    if (g[c[0]] && g[c[0]][c[1]] && !seen.has(key(c))) { seen.add(key(c)); q.push(c); }
   }
-  return { map: g.map((row, i) => row.map((_, j) => seen.has(i + "," + j) ? "#" : ".").join("")), count: seen.size, cells: q, area: g.flat().filter(Boolean).length };
+  const i0 = Math.min(...q.map(c => c[0])), j0 = Math.min(...q.map(c => c[1])), i1 = Math.max(...q.map(c => c[0])), j1 = Math.max(...q.map(c => c[1]));
+  const map = [];
+  for (let i = i0; i <= i1; i++) { let s = ""; for (let j = j0; j <= j1; j++) s += seen.has(i + "," + j) ? "#" : "."; map.push(s); }
+  const cellsOut = q.map(c => [c[0] - i0, c[1] - j0]);
+  return { map, count: q.length, cells: cellsOut, start: [st[0] - i0, st[1] - j0], area: (i1 - i0 + 1) * (j1 - j0 + 1) };
+}
+function randomBoard(type, t, scale, letter) {
+  if (type === "letter") return finishGrid(letterGrid(letter, scale > 1.05 ? 3 : 2));
+  if (type === "maze") { const c = t < 0.4 || Math.random() < 0.4 ? 2 : 1, n = Math.round((3 + t * 3) * scale); return finishGrid(mazeGrid(n + ri(0, 2), n, c, 0.12 + Math.random() * 0.2)); }
+  if (type === "rings") return finishGrid(ringsGrid(Math.max(2, Math.round((2 + t * 2) * scale)), t < 0.5 ? 2 : pick([1, 2])));
+  if (type === "rooms") { const n = Math.max(2, Math.round((2 + t * 1.5) * scale)); return finishGrid(roomsGrid(n + ri(0, 1), Math.max(2, n - ri(0, 1)), ri(4, 5), t < 0.4 ? 2 : pick([1, 2]))); }
+  return finishGrid(blobGrid(t, scale));
 }
 function randomLifts(res, n) {
   const off = new Map(), on = new Set(res.cells.map(key));
@@ -1444,7 +1548,7 @@ function randomLifts(res, n) {
   }
   const pool = [...off.values()], chosen = [];
   while (chosen.length < n && pool.length) {
-    const score = c => Math.min(c[0] + c[1] + 2, ...chosen.map(o => hopsBetween(c, o)));
+    const score = c => Math.min(hopsBetween(c, res.start) + 2, ...chosen.map(o => hopsBetween(c, o)));
     const sample = Array.from({ length: 24 }, () => pick(pool));
     const best = sample.reduce((a, b) => score(b) > score(a) ? b : a);
     chosen.push(best); pool.splice(pool.indexOf(best), 1);
@@ -1452,22 +1556,37 @@ function randomLifts(res, n) {
   return chosen;
 }
 function randomLevels() {
-  const list = [{}];
-  for (let n = 2; n <= 20; n++) {
-    const t = (n - 2) / 18;
-    // Try many boards and keep the one closest to this level's target size.
-    const target = 44 + t * 186, off = r => Math.abs(r.count - target) + (r.count < r.area * 0.8 ? 60 : 0);
-    let res = randomMap(t);
-    for (let tries = 0; tries < 60 && off(res) > target * 0.08; tries++) { const r = randomMap(t); if (off(r) < off(res)) res = r; }
+  const list = [];
+  // Three of the levels are letters, never the same letter twice.
+  const abc = Object.keys(GLYPHS), letters = [], letterAt = new Map();
+  while (letters.length < 3) { const l = pick(abc); if (!letters.includes(l)) letters.push(l); }
+  const slots = [];
+  while (slots.length < 3) { const n = ri(3, 19); if (!slots.some(s => Math.abs(s - n) < 3)) slots.push(n); }
+  slots.forEach((n, i) => letterAt.set(n, letters[i]));
+  let last = "";
+  for (let n = 1; n <= 20; n++) {
+    const t = (n - 1) / 19;
+    // Small and big boards take turns, growing a little through the game.
+    const scale = n === 1 ? 0.7 : pick([0.65, 0.85, 1, 1.15, 1.35]);
+    let type = letterAt.has(n) ? "letter" : n === 1 ? "blob" : pick(["blob", "maze", "rings", "rooms", "blob", "maze"].filter(x => x !== last));
+    let res = randomBoard(type, t, scale, letterAt.get(n));
+    let sc = scale;
+    for (let k = 0; k < 30 && type !== "letter" && (res.count < 26 || res.count > 260 || res.count > res.area * 0.92); k++) {
+      if (res.count > 260) sc *= 0.9;                // too big: shrink a little and try again
+      res = randomBoard(type, t, sc);
+    }
+    last = type;
+    const big = res.count > 150, mid = res.count > 75;
     list.push({
       map: res.map,
-      lifts: randomLifts(res, 2 + Math.round(t * 3)),
-      maxGels: 3 + Math.round(t * 5),
-      cats: 1 + Math.floor(t * 2.99),
+      lifts: randomLifts(res, 2 + Math.round(t * 2) + (big ? 1 : 0) + (type === "maze" ? 1 : 0)),
+      cats: Math.min(1 + Math.floor(t * 2.99), 1) + (mid ? 1 : 0) + (big && t > 0.3 ? 1 : 0),
+      maxGels: 3 + Math.round(t * 4) + (big ? 1 : 0),
       gelHop: 0.5 - t * 0.12,
       gelSpawn: [1.1 - t * 0.5, 1.9 - t * 0.7],
       catHop: 0.55 - t * 0.17,
       catDelay: 3 - t * 1.2,
+      kind: type === "letter" ? "Letter " + letterAt.get(n) : type,
     });
   }
   return list;
@@ -1715,7 +1834,7 @@ function earthPicture() {
 }
 
 class Space extends Game {
-  constructor(id = "space", title = "Space Attack") {
+  constructor(id = "space", title = "Starstrike") {
     super(id, title);
     this.powers = {}; this.powT = DEFAULTS.space.powerEvery; this.safeUntil = 0;   // powers survive level changes
     this.stars = Array.from({ length: 70 }, () => ({ x: rnd(LEFT, RIGHT), y: rnd(0, H), v: rnd(4, 16), p: rnd(0, TAU) }));
@@ -1814,6 +1933,7 @@ class Space extends Game {
       if (thrust && !Sound.live.rocket) Sound.play("mb_rocket", true, 1, "rocket");
       else if (!thrust && Sound.live.rocket) Sound.stop("rocket");
       this.scrollY = (this.scrollY + 70 * dt) % 720;
+      if (this.groundFade && (this.groundFade.t += dt) > 2.5) this.groundFade = null;
       if (this.cave && this.state !== "splash" && this.state !== "saved") this.caveX += (this.boss ? 30 : 58) * dt;
       if (this.boss) this.bossAlways(dt);
       if (this.state === "play" || this.state === "dying") this.updateEarth(dt);
@@ -2473,7 +2593,11 @@ class Space extends Game {
   playerRect() { if (this.cave) return { x: CAVE_SHIP_X - 9, y: this.shipY - 5, w: 18, h: 10 }; return this.earth ? { x: this.cannonX - 9, y: CANNON_Y - 12, w: 18, h: 14 } : { x: this.cannonX - 6.5, y: CANNON_Y - 7, w: 13, h: 7 }; }
   buildEarth() {
     const c = this.c;
-    this.scrollY = 0; this.aliens = []; this.shields = []; this.retreat = false; this.retreatDone = false;
+    // The ground keeps scrolling from the last level (no jump); a new time of day fades in over the old one.
+    const kind = c.ground || "day";
+    if (this.groundKind && this.groundKind !== kind) this.groundFade = { from: this.groundKind, t: 0 };
+    this.groundKind = kind; this.scrollY = this.scrollY || 0;
+    this.aliens = []; this.shields = []; this.retreat = false; this.retreatDone = false;
     this.waves = Array.from({ length: c.waves }, (_, i) => {
       const type = c.types ? c.types[i % c.types.length] : pick(["line", "slant", "circle"]);
       // Half the width of the formation, so the whole formation always fits between the walls.
@@ -2606,6 +2730,10 @@ class Space extends Game {
     if (this.earth) {
       const g = earthGround(this.c.ground), y = Math.round(this.scrollY);
       ctx.drawImage(g, LEFT, y - 720); ctx.drawImage(g, LEFT, y);
+      if (this.groundFade) {
+        const old = earthGround(this.groundFade.from);
+        ctx.globalAlpha = 1 - this.groundFade.t / 2.5; ctx.drawImage(old, LEFT, y - 720); ctx.drawImage(old, LEFT, y); ctx.globalAlpha = 1;
+      }
       if (this.boss) this.drawBoss();
       return;
     }
@@ -2648,8 +2776,8 @@ class Space extends Game {
     const life = (x, y) => { if (this.earth) ctx.drawImage(earthShip(), x, y - 2, 15, 12); else sprite(Img.cannon, 0, 0, 15, 7, x, y); };
     life.w = 15;
     this.drawLeft("#b3b3d9", life);
-    text("Space", 421, 41, { size: 13, color: "#ff5ad2" });
-    text("Attack", 421, 55, { size: 13, color: "#5ae6ff" });
+    text("Star", 421, 41, { size: 13, color: "#ff5ad2" });
+    text("strike", 421, 55, { size: 13, color: "#5ae6ff" });
     if (!Input.touchMode) {
       [[0, 74, 30], [1, 90, 20], [3, 106, 10]].forEach(([row, y, p]) => { sprite(Img.aliens, 0, row * 8, 11, 8, 386, y - 4); text("= " + p, 404, y, { align: "left" }); });
       sprite(Img.ufo, 0, 0, 16, 8, 384, 118); text("= ???", 404, 122, { align: "left" });
@@ -2828,7 +2956,7 @@ function moundArt(v) {
 function buggyArt(frame) { return Img["buggy" + (frame % 2)]; }   // the moon buggy, 30 x 20, facing right
 
 class Moonbase extends Space {
-  constructor() { super("moonbase", "Moonbase Defender"); this.prefix = "mb_"; }
+  constructor() { super("moonbase", "Moonfall"); this.prefix = "mb_"; }
   build() {
     super.build();
     this.patrol = !!this.c.patrol;
@@ -3270,8 +3398,8 @@ class Moonbase extends Space {
     const life = (x, y) => ctx.drawImage(buggyArt(0), Math.round(x), Math.round(y) - 2, 18, 12);
     life.w = 18;
     this.drawLeft("#b3b3d9", life);
-    text("Moonbase", 421, 41, { size: 12.5, color: "#ffb347" });
-    text("Defender", 421, 55, { size: 12.5, color: "#5ae6c0" });
+    text("Moon", 421, 41, { size: 13, color: "#ffb347" });
+    text("fall", 421, 55, { size: 13, color: "#5ae6c0" });
     if (!Input.touchMode) {
       text(this.c.tank ? "Boss!" : "Stage " + this.c.stage + " / 5", 421, 80, { color: this.c.tank ? "#ff7a8a" : "#b3b3d9" });
       text("\u2190 \u2192  speed", 421, 214, { size: 11, color: "#8c8cb3" });
@@ -3357,8 +3485,8 @@ class Moonbase extends Space {
     life.w = 12;
     this.drawLeft("#b3b3d9", life);
     for (let i = 0; i < this.lives; i++) life(LEFT + 4 + i * 15, 262);   // ships in reserve, bottom left of the field
-    text("Moonbase", 421, 41, { size: 12.5, color: "#ffb347" });
-    text("Defender", 421, 55, { size: 12.5, color: "#5ae6c0" });
+    text("Moon", 421, 41, { size: 13, color: "#ffb347" });
+    text("fall", 421, 55, { size: 13, color: "#5ae6c0" });
     if (!Input.touchMode) {
       MB_ALIENS.forEach((t, i) => { ctx.drawImage(t.img[0], 382, 70 + i * 18); text("= " + t.pts, 404, 75 + i * 18, { align: "left" }); });
       text("Left", 421, 165, { color: "#b3b3d9" }); text(String(this.alive), 421, 180, { size: 16 });
@@ -3391,9 +3519,9 @@ const mbShip = () => shipCv || (shipCv = pixelArt(MB_SHIP, { c: "#ff6f6f", d: "#
    MENU
    ========================================================================= */
 const CARDS = [
-  { id: "cheese", name: "Cheese Chase", x: 12, make: () => new Cheese(), c: "#ff7ad9" },
-  { id: "space", name: "Space Attack", x: 167, make: () => new Space(), c: "#5ae6ff" },
-  { id: "moonbase", name: "Moonbase Defender", x: 322, make: () => new Moonbase(), c: "#ffb347" },
+  { id: "cheese", name: "Cheddar Bandit", x: 12, make: () => new Cheese(), c: "#ff7ad9" },
+  { id: "space", name: "Starstrike", x: 167, make: () => new Space(), c: "#5ae6ff" },
+  { id: "moonbase", name: "Moonfall", x: 322, make: () => new Moonbase(), c: "#ffb347" },
 ];
 const menu = {
   sel: 0, t: 0,
@@ -3422,7 +3550,7 @@ const menu = {
   },
   drawChoice() {
     View.fill("rgba(10,3,22,.82)");
-    text("Cheese Chase", 240, 68, { size: 20, color: "#ff7ad9" });
+    text("Cheddar Bandit", 240, 68, { size: 20, color: "#ff7ad9" });
     [["Classic", LEVELS.cheese.length + " levels", "cheese"], ["Random", "20 new levels every time", "cheese20"]].forEach(([name, sub, id], i) => {
       const r = this.modeBox(i), on = i === this.mode, hs = Save.hs(id);
       rounded(r.x, r.y, r.w, r.h, 7); ctx.fillStyle = on ? "#3f2a6c" : "#2a1a4a"; ctx.fill();
