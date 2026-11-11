@@ -1036,9 +1036,17 @@ const Pads = {
   },
   // Space Attack: left and right under one thumb, fire under the other.
   readSpace() {
-    const t = {}, l = this.zone(-1), r = this.zone(1);
+    const t = {}, l = this.zone(-1), r = this.zone(1), four = scene.earth || scene.cave;
     for (const p of Input.pointers.values()) {
       if (p.y < l.top) continue;
+      if (four && p.x >= l.a && p.x <= l.b) {      // from level 5: a pad with four directions (diagonals too)
+        const dx = p.x - l.x, dy = p.y - l.y, m = Math.max(Math.abs(dx), Math.abs(dy));
+        if (m > 6) {
+          if (Math.abs(dx) > m * 0.45) t[dx < 0 ? "left" : "right"] = true;
+          if (Math.abs(dy) > m * 0.45) t[dy < 0 ? "up" : "down"] = true;
+        }
+        continue;
+      }
       if (p.x >= l.a && p.x <= l.b) t[scene.cave ? (p.y < l.y ? "left" : "right") : (p.x < l.x ? "left" : "right")] = true;   // in the caves: up on top, down below
       else if (p.x >= r.a && p.x <= r.b) t.a = true;
     }
@@ -1046,7 +1054,15 @@ const Pads = {
   },
   drawSpace() {
     const l = this.zone(-1), r = this.zone(1), w = l.r * 0.92, h = l.r * 1.1;
-    for (const [d, a] of [[-1, "left"], [1, "right"]]) {
+    if (scene.earth || scene.cave) {               // the four-way pad
+      const b = l.r * 0.62, s = l.r * 0.55;
+      for (const [dx, dy, a] of [[-1, 0, "left"], [1, 0, "right"], [0, -1, "up"], [0, 1, "down"]]) {
+        const cx = l.x + dx * b, cy = l.y + dy * b, on = Input.touch[a];
+        rounded(cx - s / 2, cy - s / 2, s, s, 7); ctx.fillStyle = on ? "rgba(120,235,255,.9)" : "rgba(90,150,255,.42)"; ctx.fill();
+        const px = -dy, py = dx;              // perpendicular, for the arrow's base
+        poly([[cx + dx * 8, cy + dy * 8], [cx - dx * 5 + px * 8, cy - dy * 5 + py * 8], [cx - dx * 5 - px * 8, cy - dy * 5 - py * 8]], on ? "#14082a" : "#d8e8ff");
+      }
+    } else for (const [d, a] of [[-1, "left"], [1, "right"]]) {
       const cave = scene.cave, bw = cave ? h : w, bh = cave ? Math.min(w, l.r - 4) : h;
       const x = cave ? l.x - bw / 2 : l.x + d * (w / 2 + 3) - w / 2, y = cave ? l.y + d * (bh / 2 + 3) - bh / 2 : l.y - h / 2, on = Input.touch[a];
       rounded(x, y, bw, bh, 8); ctx.fillStyle = on ? "rgba(120,235,255,.9)" : "rgba(90,150,255,.42)"; ctx.fill();
@@ -2162,7 +2178,7 @@ class Space extends Game {
     this.dir = 1; this.stepT = 0; this.fireT = 0; this.march = 0; this.frame = 0;
     this.ufoT = UFO_INTERVAL / c.speed; this.ufo = null;
     this.shots = []; this.shotCD = 0; this.pow = null; this.fires = []; this.booms = []; this.bursts = [];
-    this.cannonX = 240; this.cannonOn = true; this.recoil = 9; this.flash = 9;
+    this.cannonX = 240; this.cannonOn = true; this.recoil = 9; this.flash = 9; this.fwd = 0;
     this.shields = this.makeShields(c);
     this.earth = !!c.earth; this.topY = this.earth ? -10 : 20; this.floorY = this.earth ? 276 : 252;
     this.cave = !!c.cave;
@@ -2256,13 +2272,18 @@ class Space extends Game {
     Input.touch = Input.touchMode ? Pads.readSpace() : {};
     if (this.state !== "play") return;
     const c = this.c;
-    if (this.cave) {                          // up and down (left/right buttons work too)
-      const dir = (Input.held.down || Input.held.right ? 1 : 0) - (Input.held.up || Input.held.left ? 1 : 0);
+    if (this.cave) {                          // up and down; right flies forward, left back
+      const dir = (Input.held.down ? 1 : 0) - (Input.held.up ? 1 : 0), fb = (Input.held.right ? 1 : 0) - (Input.held.left ? 1 : 0);
       this.shipY = clamp(this.shipY + dir * CANNON_SPEED * c.speed * 0.9 * dt, 8, 262);
+      this.fwd = clamp((this.fwd || 0) + fb * CANNON_SPEED * c.speed * 0.6 * dt, 0, LEFT + 80 - CAVE_SHIP_X);      // never past a third of the field
       if (this.cannonOn && this.t > this.safeUntil && this.shipInRock()) { delete this.powers.shield; this.playerHit(); }
     } else {
       const dir = (Input.held.right ? 1 : 0) - (Input.held.left ? 1 : 0);
       this.cannonX = clamp(this.cannonX + dir * CANNON_SPEED * c.speed * dt, LEFT + 10, RIGHT - 10);
+      if (this.earth) {                       // up flies forward, down back
+        const fb = (Input.held.up ? 1 : 0) - (Input.held.down ? 1 : 0);
+        this.fwd = clamp((this.fwd || 0) + fb * CANNON_SPEED * c.speed * 0.6 * dt, 0, CANNON_Y - 180);
+      }
     }
     this.shotCD -= dt;
     if (this.powers.rapid ? Input.held.a && this.shotCD <= 0 : Input.just.a && !this.shots.length) { this.fire(); this.shotCD = 0.16; }
@@ -2288,11 +2309,11 @@ class Space extends Game {
   fire() {
     const sp = this.c.speed;
     if (this.cave) {
-      const bolt = v => ({ x: CAVE_SHIP_X + 12, y: this.shipY, vx: SHOT_SPEED * sp, v, tip: 0 });
+      const bolt = v => ({ x: this.cx + 13, y: this.shipY, vx: SHOT_SPEED * sp, v, tip: 0 });
       this.shots.push(bolt(0));
       if (this.powers.triple) this.shots.push(bolt(-34 * sp), bolt(34 * sp));
     } else {
-      const x = this.cannonX, y = CANNON_Y - 16, bolt = vx => ({ x, y, vx, v: -SHOT_SPEED * sp, tip: -5 });
+      const x = this.cannonX, y = this.cy - 16, bolt = vx => ({ x, y, vx, v: -SHOT_SPEED * sp, tip: -5 });
       this.shots.push(bolt(0));
       if (this.powers.triple) this.shots.push(bolt(-34 * sp), bolt(34 * sp));
     }
@@ -2448,6 +2469,7 @@ class Space extends Game {
       this.fires = [];
       this.cannonX = 240; this.cannonOn = true; this.state = "play";
       if (this.earth) this.safeUntil = this.t + 1;
+      this.fwd = 0;
       if (this.cave) { this.shipY = this.gapMid(CAVE_SHIP_X); this.safeUntil = this.t + 1.6; }
     };
     this.after(1.4, respawn);
@@ -2510,12 +2532,12 @@ class Space extends Game {
   }
   drawHull(x, by) {
     if (this.earth) {
-      const cx = Math.round(x), by = CANNON_Y + 2, len = 7 + Math.floor(this.t * 40 * 7) % 3 + rnd(0, 4);
+      const cx = Math.round(x), by = this.cy + 2, len = 7 + Math.floor(this.t * 40 * 7) % 3 + rnd(0, 4);
       glow(cx, by + 4, 8, 11, "rgba(255,150,60,A)", 0.6);
       rect(cx - 2, by, 4, Math.round(len), "#ff7a2f");
       rect(cx - 1, by, 2, Math.round(len * 0.75), "#ffd34d");
       rect(cx - 0.5, by, 1, Math.round(len * 0.4), "#fff");
-      ctx.drawImage(earthShip(), cx - 10, CANNON_Y - 13);
+      ctx.drawImage(earthShip(), cx - 10, this.cy - 13);
       return;
     }
     sprite(Img.cannon, 15, 0, 3, 6, x - 1.5, CANNON_Y + by - 3);
@@ -2524,9 +2546,9 @@ class Space extends Game {
   drawCannon(x) {
     if (this.cave) { this.drawCaveShip(); return; }
     const by = -10 + (this.recoil < 0.12 ? 3 * (1 - this.recoil / 0.12) : 0);
-    if (this.flash < 0.18) glow(x, CANNON_Y - 14, 24, 24, "rgba(77,140,255,A)", 0.9 * (1 - this.flash / 0.18));
+    if (this.flash < 0.18) glow(x, this.cy - 14, 24, 24, "rgba(77,140,255,A)", 0.9 * (1 - this.flash / 0.18));
     this.drawHull(x, by);
-    if (this.flash < 4 / 24) turned16(Img.muzzle, Math.floor(this.flash * 24) * 16, 48, x, CANNON_Y - 19);
+    if (this.flash < 4 / 24) turned16(Img.muzzle, Math.floor(this.flash * 24) * 16, 48, x, this.cy - 19);
   }
   draw() {
     View.fill("#170d29");
@@ -2863,7 +2885,7 @@ class Space extends Game {
     this.fireT -= dt;
     if (this.fireT <= 0) {
       this.fireT = FIRE_INTERVAL / c.fire * rnd(0.6, 1.4);
-      const able = this.aliens.filter(a => a && a.wait <= 0 && a.x < RIGHT - 10 && a.x > CAVE_SHIP_X + 50);
+      const able = this.aliens.filter(a => a && a.wait <= 0 && a.x < RIGHT - 10 && a.x > this.cx + 50);
       if (able.length) { const a = pick(able); this.aimed(a.x - 8, a.y, 115); this.fires[this.fires.length - 1].boss = false; Sound.play("efire"); }
     }
   }
@@ -2892,7 +2914,7 @@ class Space extends Game {
     }
   }
   drawCaveShip() {
-    const x = CAVE_SHIP_X, y = Math.round(this.shipY), L = 9 + Math.floor(this.t * 40 * 7) % 3 + rnd(0, 4), wob = mod(this.t, 0.1) < 0.05 ? 0.6 : -0.6;
+    const x = Math.round(this.cx), y = Math.round(this.shipY), L = 9 + Math.floor(this.t * 40 * 7) % 3 + rnd(0, 4), wob = mod(this.t, 0.1) < 0.05 ? 0.6 : -0.6;
     // a tapered flame in four layers, flickering, with sparks behind it
     const fx = x - 13, fy = y + 1.5, F = (pts, col) => poly(pts.map(([a, b]) => [fx + a, fy + b]), col);
     glow(fx - 4, fy, 12, 7, "rgba(255,140,50,A)", 0.55);
@@ -2906,7 +2928,10 @@ class Space extends Game {
     if (this.flash < 4 / 24) ctx.drawImage(Img.muzzle, Math.floor(this.flash * 24) * 16, 48, 16, 16, x + 11, y - 7, 16, 16);
   }
   /* ---- Earth levels ---- */
-  playerRect() { if (this.cave) return { x: CAVE_SHIP_X - 9, y: this.shipY - 5, w: 18, h: 10 }; return this.earth ? { x: this.cannonX - 9, y: CANNON_Y - 12, w: 18, h: 14 } : { x: this.cannonX - 6.5, y: CANNON_Y - 7, w: 13, h: 7 }; }
+  // From level 5 the ship can also move forward and back, at most a third of the way into the field.
+  get cy() { return CANNON_Y - (this.cave ? 0 : this.fwd || 0); }
+  get cx() { return CAVE_SHIP_X + (this.cave ? this.fwd || 0 : 0); }
+  playerRect() { if (this.cave) return { x: this.cx - 9, y: this.shipY - 5, w: 18, h: 10 }; return this.earth ? { x: this.cannonX - 9, y: this.cy - 12, w: 18, h: 14 } : { x: this.cannonX - 6.5, y: CANNON_Y - 7, w: 13, h: 7 }; }
   buildEarth() {
     const c = this.c;
     // The ground keeps scrolling from the last level (no jump); a new time of day fades in over the old one.
@@ -3105,7 +3130,7 @@ class Space extends Game {
         sprite(Img.ufo, 0, 0, 16, 8, 384, 118); text("= ???", 404, 122, { align: "left" });
       }
       text("Left", 421, 165, { color: "#b3b3d9" }); text(String(this.alive), 421, 180, { size: 16 });
-      text("\u2190 \u2192  move", 421, 227, { size: 11, color: "#8c8cb3" });
+      text(this.earth || this.cave ? "Arrows  move" : "\u2190 \u2192  move", 421, 227, { size: 11, color: "#8c8cb3" });
       text("Space  shoot", 421, 240, { size: 11, color: "#8c8cb3" });
     } else {
       text("Left: " + this.alive, 421, 74, { color: "#b3b3d9" });
