@@ -1080,8 +1080,8 @@ const UI = {
     }
     if (scene === menu && !menu.choosing) {          // three steps: pick a level
       [x, y] = this.back(this.level);
-      const c = menu.picking ? "#ffd94d" : "#d9ccf5";
-      rect(x - 7, y + 2, 4, 5, c); rect(x - 2, y - 2, 4, 9, c); rect(x + 3, y - 6, 4, 13, c);
+      const c = menu.picking ? "#ffd94d" : "#d9ccf5";              // a square with four boxes in it
+      for (const [dx, dy] of [[-7, -7], [1, -7], [-7, 1], [1, 1]]) rect(x + dx, y + dy, 6, 6, c);
     }
     if (scene !== menu && !paused) {
       [x, y] = this.back(this.pause);
@@ -3759,7 +3759,12 @@ class Moonbase extends Space {
       ctx.beginPath(); ctx.arc(b.x, b.y, 2.6, 0, TAU); ctx.fillStyle = "#ff4d6d"; ctx.fill();
       rect(b.x - 0.8, b.y - 0.8, 1.6, 1.6, "#fff");
     }
-    for (const b of G.bullets) if (!b.red) { const x = b.x, y = b.y, f = A.bullet[0], s = Math.max(0.5, this.gsize(Math.hypot(x - GX, y - GY))); ctx.drawImage(Img.gyruss, f[0], f[1], f[2], f[3], x - f[2] * s / 2, y - f[3] * s / 2, f[2] * s, f[3] * s); }
+    for (const b of G.bullets) if (!b.red) {         // enemy shots: big yellow balls that are easy to see on a phone
+      const k = Math.max(0.6, this.gsize(Math.hypot(b.x - GX, b.y - GY))), r = 1.4 + 2 * k;
+      glow(b.x, b.y, r * 2.4, r * 2.4, "rgba(255,220,80,A)", 0.65);
+      ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, TAU); ctx.fillStyle = "#ffd34d"; ctx.fill();
+      ctx.beginPath(); ctx.arc(b.x - r * 0.25, b.y - r * 0.25, r * 0.45, 0, TAU); ctx.fillStyle = "#fff8d0"; ctx.fill();
+    }
     for (const s of G.shots) {                 // the shots: small fireballs that shrink as they fly into the distance
       const perp = s.a + Math.PI / 2, k = Math.max(0.35, this.gsize(s.r)), [x, y] = this.gpos(s.r, s.a), f = A.boom[0];
       const cx = x + Math.cos(perp) * s.o * k, cy = y + Math.sin(perp) * s.o * k;
