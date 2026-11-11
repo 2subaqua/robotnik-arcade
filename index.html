@@ -3046,13 +3046,13 @@ class Moonbase extends Space {
     if (Input.just.a && this.shotCD <= 0 && this.ups.length < 3) {
       this.shotCD = 0.22; this.flash = 0;
       this.ups.push({ x: this.bx - 6, y: this.by - 20 });
-      if (!this.fwd) this.fwd = { x: this.bx + 15, y: this.by - 9, h: this.groundAt(this.worldX) - this.by + 9, left: 120 };
+      if (!this.fwd) this.fwd = this.aimForward({ x: this.bx + 15, y: this.by - 9, vy: 0, left: 120 }, speed);
       this.snd("shoot");
     }
     for (const s of this.ups) s.y -= 270 * dt;
     this.ups = this.ups.filter(s => s.y > -10 && !this.upHits(s));
-    if (this.fwd) { const f = this.fwd, v = 300 * dt; f.x += v; f.left -= v;
-      const hill = f.y > this.groundAt(this.scroll + f.x - LEFT) - 1;              // flies straight; a hill in the way stops it
+    if (this.fwd) { const f = this.fwd, v = 300 * dt; f.x += v; f.left -= v; f.y += f.vy * dt;
+      const hill = !f.aimed && f.y > this.groundAt(this.scroll + f.x - LEFT) - 1;  // flies straight; a hill in the way stops it
       if (hill) this.boom(f.x, f.y, "red");
       if (hill || f.left <= 0 || f.x > RIGHT || this.fwdHits(f)) this.fwd = null; }
     // Craters and mounds.
@@ -3062,6 +3062,20 @@ class Moonbase extends Space {
       if (o.kind === "mound" && this.by > this.groundAt(o.x + 7) - 9 && Math.abs(wx + 8 - (o.x + 7)) < 12) { this.crash(false); return; }
     }
     if (wx >= c.length) this.stageDone();
+  }
+  // The forward shot flies straight, but if a mound lies ahead it tilts to hit it (mounds in a dip or on a slope).
+  aimForward(f, speed) {
+    let best = null, bt = Infinity;
+    for (const o of this.obstacles) {
+      if (o.kind !== "mound") continue;
+      const mx = LEFT + o.x + 7 - this.scroll, t = (mx - f.x) / (300 + speed);      // they close in on each other
+      if (t > 0 && t * 300 <= f.left + 10 && t < bt) { bt = t; best = o; }
+    }
+    if (best) {
+      const ty = this.groundAt(best.x + 7) - 5;
+      f.vy = clamp((ty - f.y) / bt, -180, 180); f.aimed = true;
+    }
+    return f;
   }
   upHits(s) {
     const r = { x: s.x - 1, y: s.y - 4, w: 3, h: 8 };
