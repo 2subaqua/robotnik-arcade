@@ -3759,11 +3759,13 @@ class Moonbase extends Space {
       ctx.beginPath(); ctx.arc(b.x, b.y, 2.6, 0, TAU); ctx.fillStyle = "#ff4d6d"; ctx.fill();
       rect(b.x - 0.8, b.y - 0.8, 1.6, 1.6, "#fff");
     }
-    for (const b of G.bullets) if (!b.red) {         // enemy shots: big yellow balls that are easy to see on a phone
-      const k = Math.max(0.6, this.gsize(Math.hypot(b.x - GX, b.y - GY))), r = 1.4 + 2 * k;
-      glow(b.x, b.y, r * 2.4, r * 2.4, "rgba(255,220,80,A)", 0.65);
-      ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, TAU); ctx.fillStyle = "#ffd34d"; ctx.fill();
-      ctx.beginPath(); ctx.arc(b.x - r * 0.25, b.y - r * 0.25, r * 0.45, 0, TAU); ctx.fillStyle = "#fff8d0"; ctx.fill();
+    for (const b of G.bullets) if (!b.red) {         // enemy shots: spinning yellow stars, tiny far away and big up close
+      const k = Math.max(0.15, this.gsize(Math.hypot(b.x - GX, b.y - GY))), a0 = this.t * 9 + b.x * 0.05;
+      glow(b.x, b.y, 8 * k + 1, 8 * k + 1, "rgba(255,230,90,A)", 0.5);
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) { const a = a0 + i * TAU / 8, r = (i % 2 ? 1.6 : 6) * k + 0.4; ctx[i ? "lineTo" : "moveTo"](b.x + Math.cos(a) * r, b.y + Math.sin(a) * r); }
+      ctx.closePath(); ctx.fillStyle = "#ffd34d"; ctx.fill();
+      ctx.beginPath(); ctx.arc(b.x, b.y, 1.3 * k + 0.3, 0, TAU); ctx.fillStyle = "#fff8d0"; ctx.fill();
     }
     for (const s of G.shots) {                 // the shots: small fireballs that shrink as they fly into the distance
       const perp = s.a + Math.PI / 2, k = Math.max(0.35, this.gsize(s.r)), [x, y] = this.gpos(s.r, s.a), f = A.boom[0];
