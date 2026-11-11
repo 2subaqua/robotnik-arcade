@@ -2011,32 +2011,24 @@ function pixelRows(rows, pal) {
 }
 const CAVE_SHIP_X = LEFT + 34;
 let sideShipCv = null;
-const sideShip = () => sideShipCv || (sideShipCv = pixelRows([
-  "......dddd..........",
-  "....ddggggdd........",
-  "..ddgggggwwwdd......",
-  "dddgggggwbbbwwdd....",
-  "dgggggggwbbbwwwgdd..",
-  "dggggggggwwwgggggddd",
-  "dgggggggggggggggggdd",
-  "dddgggggggggggggdd..",
-  "..ddggggggggdd......",
-  "....ddddgggdd.......",
-  "........ddd.........",
-  "....................",
-], { d: "#6b7080", g: "#a7adba", w: "#d9dde6", b: "#4f8dff" }));
+const sideShip = () => sideShipCv || (sideShipCv = pixelRows([   // the cave fighter: low body, tall tail fin, nose to the right
+  "kk........................", "kgk.......................", "kgk.......................", "kglk..........kkk.........",
+  "kgllk.......kkwbbkk.......", "kgllllkkkkkkwwbbbcckkk....", "kdllllllllllllwwwwwwwwwkk.", "kdrrrrrrrrllllllllllllllkk",
+  "kdgggggggggggggggggggggk..", ".kkdddddddddddgggggkkk....", "...kkkkkkkkkkkkkkkk.......",
+], { k: "#1a1030", w: "#f0f2ff", l: "#b8bfd0", g: "#7f879c", d: "#4a5068", b: "#4f8dff", c: "#bfe6ff", r: "#e0303a" }));
 // Enemy ships in profile, nose to the left, flame to the right. One shape per colour (as on level 4).
 const CAVE_SHAPES = [
   ["......aaaa......", "....aabbbbaa..ff", "..aabbbbbbbbbaff", "aabkkbbbbbbbbbbf", "abkkkbbccbbbbbb.", "aabbbbbbbbbbbbbf", "..aabbbbbbbbbaff", "....aabbbbaa..ff", "......aaaa......"],
   ["aa..............", ".abb......ff....", "..abbb...bbf....", "aabkkbbbbbbbbbff", "abkkkbbccbbbbbbf", "aabbbbbbbbbbbbff", "..abbb...bbf....", ".abb......ff....", "aa.............."],
   ["................", "........aaa.....", "......aabbba..ff", "aaabbbbbbbbbbbff", "akkkbbbccbbbbbbf", "aaabbbbbbbbbbbff", "......aabbba..ff", "........aaa.....", "................"],
+  ["oo..........oo..", "oco..oooo..oao..", ".ocooboobooao...", "..obccccbbbboo..", ".obckkccbbbbbao.", ".obckkccbbbbbao.", "..obccccbbbboo..", ".ocoobbbboaao...", "oco..oooo..oao..", "oo..........oo.."],   // the pink insect
 ];
 const caveArt = {};
 function caveAlien(row, f) {
   const k = row + "." + f;
   if (caveArt[k]) return caveArt[k];
   const hex = ROW_COLORS[row], rgb = [1, 3, 5].map(i => parseInt(hex.substr(i, 2), 16) / 255), L = m => css(rgb.map(v => Math.min(1, v * m)));
-  return caveArt[k] = pixelRows(CAVE_SHAPES[row % 3], { a: L(0.55), b: L(1), c: L(1.25), k: "#6ed7ff", f: f ? "#ffd34d" : "#ff7a2f" });
+  return caveArt[k] = pixelRows(CAVE_SHAPES[row === 0 ? 3 : row % 3], { a: L(0.55), b: L(1), c: L(1.25), k: "#6ed7ff", f: f ? "#ffd34d" : "#ff7a2f", o: "#1a1030" });
 }
 // The splash picture for the caves: a rock face with a glowing cave mouth.
 let cavePicCv = null;
@@ -2900,12 +2892,18 @@ class Space extends Game {
     }
   }
   drawCaveShip() {
-    const x = CAVE_SHIP_X, y = Math.round(this.shipY), len = 6 + Math.floor(this.t * 40 * 7) % 3 + rnd(0, 3);
-    glow(x - 12, y, 10, 7, "rgba(255,150,60,A)", 0.6);
-    rect(x - 10 - len, y - 2, len, 4, "#ff7a2f"); rect(x - 10 - len * 0.75, y - 1, len * 0.75, 2, "#ffd34d");
-    if (this.flash < 0.18) glow(x + 12, y, 18, 14, "rgba(77,140,255,A)", 0.9 * (1 - this.flash / 0.18));
-    ctx.drawImage(sideShip(), x - 10, y - 6);
-    if (this.flash < 4 / 24) ctx.drawImage(Img.muzzle, Math.floor(this.flash * 24) * 16, 48, 16, 16, x + 8, y - 8, 16, 16);
+    const x = CAVE_SHIP_X, y = Math.round(this.shipY), L = 9 + Math.floor(this.t * 40 * 7) % 3 + rnd(0, 4), wob = mod(this.t, 0.1) < 0.05 ? 0.6 : -0.6;
+    // a tapered flame in four layers, flickering, with sparks behind it
+    const fx = x - 13, fy = y + 1.5, F = (pts, col) => poly(pts.map(([a, b]) => [fx + a, fy + b]), col);
+    glow(fx - 4, fy, 12, 7, "rgba(255,140,50,A)", 0.55);
+    F([[0, -3], [-L * 0.6, -2.5 + wob], [-L, 0], [-L * 0.6, 2.5 + wob], [0, 3]], "#ff5a2a");
+    F([[0, -2], [-L * 0.5, -1.5], [-L * 0.8, 0], [-L * 0.5, 1.5], [0, 2]], "#ffa030");
+    F([[0, -1.2], [-L * 0.45, 0], [0, 1.2]], "#ffe36a");
+    F([[0, -0.6], [-L * 0.2, 0], [0, 0.6]], "#ffffff");
+    rect(fx - L - 2 - Math.floor(this.t * 30) % 3, fy + (Math.floor(this.t * 20) % 2 ? -2 : 1), 1, 1, "#ffd34d");
+    if (this.flash < 0.18) glow(x + 14, y, 18, 14, "rgba(77,140,255,A)", 0.9 * (1 - this.flash / 0.18));
+    ctx.drawImage(sideShip(), x - 13, y - 6);
+    if (this.flash < 4 / 24) ctx.drawImage(Img.muzzle, Math.floor(this.flash * 24) * 16, 48, 16, 16, x + 11, y - 7, 16, 16);
   }
   /* ---- Earth levels ---- */
   playerRect() { if (this.cave) return { x: CAVE_SHIP_X - 9, y: this.shipY - 5, w: 18, h: 10 }; return this.earth ? { x: this.cannonX - 9, y: CANNON_Y - 12, w: 18, h: 14 } : { x: this.cannonX - 6.5, y: CANNON_Y - 7, w: 13, h: 7 }; }
@@ -3091,13 +3089,21 @@ class Space extends Game {
     sprite(Img.fireshot, sx, 0, 5, 12, f.x - 2.5, f.y - 6);
   }
   drawPanels() {
-    const life = (x, y) => { if (this.earth) ctx.drawImage(earthShip(), x, y - 2, 15, 12); else sprite(Img.cannon, 0, 0, 15, 7, x, y); };
+    const life = (x, y) => { if (this.cave) ctx.drawImage(sideShip(), x - 1, y, 17, 8); else if (this.earth) ctx.drawImage(earthShip(), x, y - 2, 15, 12); else sprite(Img.cannon, 0, 0, 15, 7, x, y); };
     life.w = 15;
     this.drawLeft("#b3b3d9", life);
     text("Starstrike", 421, 48, { size: 13, color: "#ff5ad2" });
     if (!Input.touchMode) {
-      [[0, 74, 30], [1, 90, 20], [3, 106, 10]].forEach(([row, y, p]) => { sprite(Img.aliens, 0, row * 8, 11, 8, 386, y - 4); text("= " + p, 404, y, { align: "left" }); });
-      sprite(Img.ufo, 0, 0, 16, 8, 384, 118); text("= ???", 404, 122, { align: "left" });
+      if (this.earth || this.cave) {             // from level 5: the ships you meet there, five colours
+        for (let row = 0; row < 5; row++) {
+          const im = this.cave ? caveAlien(row, Math.floor(this.t * 8) % 2) : earthAlien(row, Math.floor(this.t * 8) % 2), y = 70 + row * 16, h = 11, w = im.width * h / im.height;
+          ctx.drawImage(im, Math.round(392 - w / 2), y - 6, w, h);
+          text("= " + ROW_POINTS[row], 404, y, { align: "left" });
+        }
+      } else {
+        [[0, 74, 30], [1, 90, 20], [3, 106, 10]].forEach(([row, y, p]) => { sprite(Img.aliens, 0, row * 8, 11, 8, 386, y - 4); text("= " + p, 404, y, { align: "left" }); });
+        sprite(Img.ufo, 0, 0, 16, 8, 384, 118); text("= ???", 404, 122, { align: "left" });
+      }
       text("Left", 421, 165, { color: "#b3b3d9" }); text(String(this.alive), 421, 180, { size: 16 });
       text("\u2190 \u2192  move", 421, 227, { size: 11, color: "#8c8cb3" });
       text("Space  shoot", 421, 240, { size: 11, color: "#8c8cb3" });
