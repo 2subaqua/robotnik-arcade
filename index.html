@@ -1279,7 +1279,8 @@ class Cheese extends Game {
   caught() {
     const r = this.rat;
     this.state = "dying"; Sound.play("squeak");
-    this.float("Ow!", r.x, r.y - 26, 0.9);
+    this.catches = (this.catches || 0) + 1;      // second catch of the game: "Cheezus!", the very last one: "Rats!"
+    this.float(this.lives <= 1 ? "Rats!" : this.catches === 2 ? "Cheezus!" : "Ow!", r.x, r.y - 26, 0.9);
     r.anim = "curl";
     this.after(1.2, () => this.loseLife(false));
   }
