@@ -2776,8 +2776,7 @@ class Space extends Game {
     const life = (x, y) => { if (this.earth) ctx.drawImage(earthShip(), x, y - 2, 15, 12); else sprite(Img.cannon, 0, 0, 15, 7, x, y); };
     life.w = 15;
     this.drawLeft("#b3b3d9", life);
-    text("Star", 421, 41, { size: 13, color: "#ff5ad2" });
-    text("strike", 421, 55, { size: 13, color: "#5ae6ff" });
+    text("Starstrike", 421, 48, { size: 13, color: "#ff5ad2" });
     if (!Input.touchMode) {
       [[0, 74, 30], [1, 90, 20], [3, 106, 10]].forEach(([row, y, p]) => { sprite(Img.aliens, 0, row * 8, 11, 8, 386, y - 4); text("= " + p, 404, y, { align: "left" }); });
       sprite(Img.ufo, 0, 0, 16, 8, 384, 118); text("= ???", 404, 122, { align: "left" });
@@ -3398,8 +3397,7 @@ class Moonbase extends Space {
     const life = (x, y) => ctx.drawImage(buggyArt(0), Math.round(x), Math.round(y) - 2, 18, 12);
     life.w = 18;
     this.drawLeft("#b3b3d9", life);
-    text("Moon", 421, 41, { size: 13, color: "#ffb347" });
-    text("fall", 421, 55, { size: 13, color: "#5ae6c0" });
+    text("Moonfall", 421, 48, { size: 13, color: "#ffb347" });
     if (!Input.touchMode) {
       text(this.c.tank ? "Boss!" : "Stage " + this.c.stage + " / 5", 421, 80, { color: this.c.tank ? "#ff7a8a" : "#b3b3d9" });
       text("\u2190 \u2192  speed", 421, 214, { size: 11, color: "#8c8cb3" });
@@ -3434,7 +3432,7 @@ class Moonbase extends Space {
       text("To the moon buggy!", 240, 222, { size: 20, w: 800, color: "#5ae6c0", outline: "#14082a" });
     }
   }
-  get winText() { return "The base is safe!"; }
+  get winText() { return "Attack wave cleared!"; }
   get ufoImage() { return mbUfo(); }
   saveShields() { return this.shields.map(s => s.discs.map(d => d.y)); }
   loadShields(list) { this.shields.forEach((s, n) => { s.discs = s.discs.filter(d => list[n].includes(d.y)); }); }
@@ -3476,7 +3474,7 @@ class Moonbase extends Space {
   drawAlien(a, r) { const t = MB_ALIENS[a.row % 3]; ctx.drawImage(t.img[this.frame], Math.round(r.x), Math.round(r.y)); }
   drawHull(x) { ctx.drawImage(mbShip(), Math.round(x) - 8, CANNON_Y - 11); }
   drawFire(f) {
-    const c = mod(Math.floor(f.x), 2) ? "#ff5a6a" : "#6dffa0";
+    const c = mod(Math.floor(f.x), 2) ? "#ff5a6a" : "#ff3b4e";
     glow(f.x, f.y, 5, 9, "rgba(255,255,255,A)", 0.18);
     for (let i = -5; i < 5; i += 4) rect(Math.round(f.x) - 1, Math.round(f.y) + i, 2, 3, c);
   }
@@ -3485,8 +3483,7 @@ class Moonbase extends Space {
     life.w = 12;
     this.drawLeft("#b3b3d9", life);
     for (let i = 0; i < this.lives; i++) life(LEFT + 4 + i * 15, 262);   // ships in reserve, bottom left of the field
-    text("Moon", 421, 41, { size: 13, color: "#ffb347" });
-    text("fall", 421, 55, { size: 13, color: "#5ae6c0" });
+    text("Moonfall", 421, 48, { size: 13, color: "#ffb347" });
     if (!Input.touchMode) {
       MB_ALIENS.forEach((t, i) => { ctx.drawImage(t.img[0], 382, 70 + i * 18); text("= " + t.pts, 404, 75 + i * 18, { align: "left" }); });
       text("Left", 421, 165, { color: "#b3b3d9" }); text(String(this.alive), 421, 180, { size: 16 });
