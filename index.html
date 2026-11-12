@@ -595,7 +595,7 @@ const View = {
     this.dpr = Math.min(devicePixelRatio || 1, 2.5);
     cv.width = Math.round(vw * this.dpr); cv.height = Math.round(vh * this.dpr);
     const r = document.getElementById("safe").getBoundingClientRect(), safeT = r.top;
-    this.safeB = Math.max(vh - r.bottom, 0);
+    this.safeB = Math.max(vh - r.bottom, 0); this.safeKey = r.top + "," + r.bottom;
     this.portrait = vh > vw;
     if (this.portrait) {
       // TOP_GAP: an empty row above the score line, clear of the phone's status bar.
@@ -621,6 +621,12 @@ const View = {
   fill(c) { rect(this.left, this.top, this.right - this.left, this.bottom - this.top, c); },
 };
 addEventListener("resize", () => View.resize());
+// Phones (above all a home-screen app) can report the status-bar inset a moment after start, without any resize
+// event, which left the menu too high until the app was reopened. So also listen for these, and check the inset now and then.
+if (window.visualViewport) visualViewport.addEventListener("resize", () => View.resize());
+addEventListener("orientationchange", () => setTimeout(() => View.resize(), 300));
+addEventListener("pageshow", () => View.resize());
+document.addEventListener("visibilitychange", () => { if (!document.hidden) View.resize(); });
 
 function text(s, x, y, o = {}) {
   ctx.font = `${o.w || 700} ${o.size || 11}px ${FONT}`;
@@ -4881,9 +4887,14 @@ function render() {
   }
   UI.draw(paused);
 }
+let safeTick = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   if (innerWidth !== View.vw || innerHeight !== View.vh) View.resize();   // catches phone rotation
+  else if (++safeTick % 20 === 0) {                 // and a status-bar inset that arrives late (see above)
+    const r = document.getElementById("safe").getBoundingClientRect();
+    if (r.top + "," + r.bottom !== View.safeKey) View.resize();
+  }
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
   acc += dt;
   while (acc >= STEP) { tick(); acc -= STEP; }
