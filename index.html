@@ -1756,8 +1756,16 @@ class Cheese extends Game {
     if (e.timer > 0) return;
     if (e.kind === "gel") {
       e.timer = this.c.gelHop;
-      const ds = e.dirs.filter(d => this.step(e.cell, d) !== "wall");   // a jelly only bounces against a wall and waits
-      if (!ds.length) return;
+      let ds = e.dirs.filter(d => this.step(e.cell, d) !== "wall");
+      if (!ds.length) {
+        // Stuck (walls on both of its sides): turn to another open side, preferring cubes over holes,
+        // and keep heading that way together with the old direction that is not straight back.
+        const open = Object.values(DIRS).filter(d => this.step(e.cell, d) !== "wall");
+        if (!open.length) return;
+        const solid = open.filter(d => this.step(e.cell, d) === "ok"), nd = pick(solid.length ? solid : open);
+        e.dirs = [nd, ...e.dirs.filter(d => !(d[0] === -nd[0] && d[1] === -nd[1]) && !same(d, nd))].slice(0, 2);
+        ds = [nd];
+      }
       const d = pick(ds);
       this.enemyHop(e, [e.cell[0] + d[0], e.cell[1] + d[1]]);
     } else {
@@ -1783,6 +1791,15 @@ class Cheese extends Game {
       const d = dist ? (dist.has(key(to)) ? dist.get(key(to)) : 1e9) : hopsBetween(goal, to);
       if (d < bd) { bd = d; best = to; }
     }
+    if (bd >= 1e9) {
+      // No way to the rat from here (it is up where the cat cannot climb): wander to an open neighbour,
+      // not straight back where it came from if it can help it, until a path turns up.
+      const open = Object.values(DIRS).map(d => [cat.cell[0] + d[0], cat.cell[1] + d[1]])
+        .filter(to => this.step(cat.cell, [to[0] - cat.cell[0], to[1] - cat.cell[1]]) === "ok");
+      const fwd = open.filter(to => !cat.last || !same(to, cat.last));
+      if (open.length) best = pick(fwd.length ? fwd : open);
+    }
+    cat.last = cat.cell;
     return best;
   }
   enemyHop(e, to) {
