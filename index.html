@@ -221,6 +221,31 @@ const LEVELS = {
   "###########.###.##..##.####",
   "###########################",
 ] },
+    // Höjder och sluttningar (från bana 11): # är en kub på marken, 1-9 en kub som står så många steg högre,
+    // och ^ > v < är sluttningar. Man går uppför med den piltangent tecknet liknar (^ upp, > höger, v ner, < vänster).
+    // En sluttning tar sin höjd från kuben vid sin låga ände. Neråt kan man alltid hoppa, uppåt bara via en sluttning.
+    { cats: 2, lifts: [[4, -1], [9, 4]], map: [
+      "#########",
+      "#########",
+      "##11111##",
+      "##1>2<1##",
+      "#>12221<#",
+      "##12221##",
+      "##11111##",
+      "####^####",
+      "#########",
+    ] },
+    { cats: 2, maxGels: 5, lifts: [[-1, 4], [9, 5], [4, 9]], map: [
+      "#########",
+      "#111v111#",
+      "#122v221#",
+      "#123v321#",
+      "#1233321#",
+      "#123^321#",
+      "#122^221#",
+      "#111^111#",
+      "##.###.##",
+    ] },
   ],
   // divers: ships that break away together, dive at the player, fire three quick shots and fly home.
   // map: the formation as rows of ships (#) and gaps (anything else).
@@ -304,7 +329,7 @@ const Save = (() => {
 const Sound = {
   ac: null, master: null, buf: {}, live: {},
   // Original volume_db from the Godot scenes, as gain.
-  vol: { hop: -6, gel: -8, boomChip: -4, boomArcade: -4, boomBaboom: -4, cheer: -2, victory: -7, defeat: -7, moontheme: -6, gyrintro: 3, gyrtheme: 3, gyrbridge: 3, gyrwarp: 3, gyrboss: 3, efire: -4, eboom: -3, bossfire: -4, bossengine: -6, mb_rocket: -9, mb_beep: -8, mb_fire: 0, mb_shoot: 4, mb_march1: -5, mb_march2: -5, mb_march3: -5, mb_march4: -5, mb_ufo: -3, mb_crash: -6, fall: -4, lift: -4, drop: -8, march1: -2, march2: -2, march3: -2, march4: -2, fire: -8, ufo: -6 },
+  vol: { hop: -6, gel: -8, boomChip: -4, boomArcade: -4, boomBaboom: -4, cheer: -2, victory: -7, defeat: -7, moontheme: -6, gyrintro: 5, gyrtheme: 6, gyrbridge: 6, gyrwarp: 8, gyrboss: 3, efire: -4, eboom: -3, bossfire: -4, bossengine: -6, mb_rocket: -9, mb_beep: -8, mb_fire: 0, mb_shoot: 4, mb_march1: -5, mb_march2: -5, mb_march3: -5, mb_march4: -5, mb_ufo: -3, mb_crash: -6, fall: -4, lift: -4, drop: -8, march1: -2, march2: -2, march3: -2, march4: -2, fire: -8, ufo: -6 },
   init(data) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -491,6 +516,7 @@ const Sound = {
     s.connect(g); g.connect(this.master); s.start();
     s.fader = g;
     s.playbackRate.value = rate;
+    s.onended = () => { if (this.live[voice] === s) delete this.live[voice]; };   // a finished sound frees its voice
     this.live[voice] = s;
   },
   stop(k) { const s = this.live[k]; if (s) { try { s.stop(); } catch (e) {} delete this.live[k]; } },
@@ -511,7 +537,7 @@ const Sound = {
     g.gain.value = Math.pow(10, db / 20);
     n.onaudioprocess = e => p.render(e.outputBuffer.getChannelData(0));
     n.connect(g); g.connect(this.master);
-    this.live[voice] = { fader: g, stop() { n.onaudioprocess = null; n.disconnect(); g.disconnect(); } };
+    this.live[voice] = { sid: true, fader: g, stop() { n.onaudioprocess = null; n.disconnect(); g.disconnect(); } };
   },
   fade(voice) {
     const s = this.live[voice];
@@ -1363,6 +1389,37 @@ function drawCube(cx, cy, hw, hh, dep, hue, eaten, wave) {
   line([w, n, e], `rgba(255,255,255,${0.55 + wave * 0.45})`);
 }
 
+// A cube standing on the ground with its top raised: hc holds the heights of the top corners N, E, S, W,
+// all the same for a raised cube, two low and two high for a ramp. zs is how far up one height step is drawn.
+function drawBlock(cx, gy, hw, hh, dep, zs, hc, hue, eaten, wave) {
+  const P = (ox, oy, h) => [cx + ox, gy + oy - h * zs];
+  const n = P(0, -hh, hc[0]), e = P(hw, 0, hc[1]), s = P(0, hh, hc[2]), w = P(-hw, 0, hc[3]);
+  const sd = [cx, gy + hh + dep], ed = [cx + hw, gy + dep], wd = [cx - hw, gy + dep];
+  let top = hsv(hue, eaten ? 0.22 : 0.92, 1);
+  const tilt = hc[1] - hc[3];                            // a ramp facing left catches the light, like the cubes' left sides
+  if (tilt > 0) top = mix(top, [1, 1, 1], 0.18); else if (tilt < 0) top = mix(top, [0, 0, 0], 0.22);
+  top = mix(top, [1, 1, 1], wave * 0.55);
+  poly([w, s, sd, wd], css(hsv(hue, 0.92, 0.62)));
+  poly([s, e, ed, sd], css(hsv(hue, 0.95, 0.45)));
+  // seams where one raised level sits on the next, so a tall block reads as stacked cubes
+  const seam = "rgba(31,13,51,.45)";
+  for (let k = 0; k < Math.max(...hc); k++) {
+    if (Math.min(hc[3], hc[2]) > k) line([P(-hw, 0, k), P(0, hh, k)], seam);
+    if (Math.min(hc[2], hc[1]) > k) line([P(0, hh, k), P(hw, 0, k)], seam);
+  }
+  poly([n, e, s, w], css(top));
+  if (Math.max(...hc) !== Math.min(...hc)) {                   // a ramp: two step lines across it
+    const q = [n, e, s, w], k = [0, 1, 2, 3].find(i => hc[i] === hc[(i + 1) % 4] && hc[i] === Math.min(...hc));
+    const L = (a, b, f) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+    for (const f of [0.33, 0.66]) line([L(q[k], q[(k + 3) % 4], f), L(q[(k + 1) % 4], q[(k + 2) % 4], f)], "rgba(255,255,255,.45)");
+  }
+  const dark = "rgba(31,13,51,.9)";
+  line([w, s, e], dark); line([w, wd, sd, ed, e], dark); line([s, sd], dark);
+  line([w, n, e], `rgba(255,255,255,${0.55 + wave * 0.45})`);
+}
+// Map letters for ramps: you walk uphill with the arrow key it looks like (^ up, > right, v down, < left).
+const RAMPS = { "^": [-1, 0], ">": [0, 1], "v": [1, 0], "<": [0, -1] };
+
 let bgCheese = null;
 function cheeseBackdrop() {
   if (bgCheese) return bgCheese;
@@ -1382,10 +1439,15 @@ class Cheese extends Game {
   get hsId() { return this.random ? "cheese20" : "cheese"; }
   build() {
     const c = this.c = this.cfg;
-    this.hw = 19; this.hh = 12; this.dep = 16;
+    this.hw = 19; this.hh = 12; this.dep = 16; this.zs = 12;       // zs: pixels per height step
     const rows = c.map || Array.from({ length: c.size }, () => "#".repeat(c.size));
-    this.cells = [];
-    rows.forEach((row, i) => [...row].forEach((ch, j) => { if (ch === "#") this.cells.push([i, j]); }));
+    // # is a cube on the ground, 1-9 a cube raised that many steps, ^ > v < a ramp (see RAMPS).
+    this.cells = []; this.tile = new Map();
+    rows.forEach((row, i) => [...row].forEach((ch, j) => {
+      const t = ch === "#" ? { h: 0 } : ch >= "0" && ch <= "9" ? { h: +ch } : RAMPS[ch] ? { ramp: RAMPS[ch] } : null;
+      if (t) { this.cells.push([i, j]); this.tile.set(i + "," + j, t); }
+    }));
+    this.settleRamps();
     this.cells.sort((a, b) => (a[0] + a[1]) - (b[0] + b[1]) || a[0] - b[0]);   // back to front
     this.board = new Set(this.cells.map(key));
     this.start = this.cells[0];                   // the rat starts on the top cube (normally [0, 0])
@@ -1395,22 +1457,22 @@ class Cheese extends Game {
     for (const cell of this.cells) {
       if (same(cell, this.start)) continue;
       const p = this.pos(cell);
-      this.cheeses.set(key(cell), { x: p[0], y: p[1], kind: "cheese", visible: true });
+      this.cheeses.set(key(cell), { x: p[0], y: p[1], kind: "cheese", visible: true, cell });
     }
     const m = Math.floor(rows.length / 2);
     const liftCells = Array.isArray(c.lifts) ? c.lifts : [[m, -1], [-1, m]].slice(0, c.lifts);
     liftCells.forEach(cell => {
-      const p = this.pos(cell);
-      this.lifts.set(key(cell), { x: p[0], y: p[1] + 4 });
+      const h = this.liftH(cell), p = this.pos(cell, h);
+      this.lifts.set(key(cell), { x: p[0], y: p[1] + 4, h, cell });
     });
     this.rat = this.actor("rat", this.start);
     // Lucky tile: every other level from level 2, once, at least 15 s in.
     this.bonus = null; this.bonusDone = false; this.cheeseTotal = this.cheeses.size;
     this.lucky = null; this.levelT = 0; this.luckyAt = (this.level + 1) % 2 === 0 ? rnd(15, 30) : Infinity;
     // What the camera may show.
-    const pts = [...this.cells, ...liftCells].map(cl => this.pos(cl));
+    const pts = [...this.cells.map(cl => this.pos(cl)), ...liftCells.map(cl => this.pos(cl, this.liftH(cl)))], gnd = [...this.cells, ...liftCells].map(cl => this.pos(cl, 0));
     this.minX = Math.min(...pts.map(p => p[0])) - this.hw; this.maxX = Math.max(...pts.map(p => p[0])) + this.hw;
-    this.minY = Math.min(...pts.map(p => p[1])) - this.hh; this.maxY = Math.max(...pts.map(p => p[1])) + this.hh + this.dep;
+    this.minY = Math.min(...pts.map(p => p[1])) - this.hh; this.maxY = Math.max(...gnd.map(p => p[1])) + this.hh + this.dep;
     this.cam = this.camGoal();
   }
   // Keep the rat in view without showing more than a little beyond the board.
@@ -1426,18 +1488,67 @@ class Cheese extends Game {
     const g = this.camGoal(), k = Math.min(1, dt * 6);
     this.cam.x += (g.x - this.cam.x) * k; this.cam.y += (g.y - this.cam.y) * k;
   }
-  pos(c) { return [240 + (c[1] - c[0]) * this.hw, 58 + (c[0] + c[1]) * this.hh]; }
+  // The middle of a cube's top; h (the height there) defaults to the cube's own.
+  pos(c, h = this.hAt(c)) { return [240 + (c[1] - c[0]) * this.hw, 58 + (c[0] + c[1]) * this.hh - h * this.zs]; }
   onBoard(c) { return this.board.has(key(c)); }
+  // Heights. A cube has one height, a ramp is low on one side and one step higher on the other.
+  edgeOf(t, d) {                     // the height of a tile's edge on side d
+    if (!t || t.h === undefined) return undefined;
+    if (!t.ramp) return t.h;
+    if (same(d, t.ramp)) return t.h + 1;
+    if (d[0] === -t.ramp[0] && d[1] === -t.ramp[1]) return t.h;
+    return t.h + 0.5;
+  }
+  hAt(c) { const t = this.tile && this.tile.get(key(c)); return t ? t.h + (t.ramp ? 0.5 : 0) : 0; }
+  corners(c) {                       // top corner heights N, E, S, W
+    const t = this.tile.get(key(c));
+    if (!t.ramp) return [t.h, t.h, t.h, t.h];
+    return [[-0.5, -0.5], [-0.5, 0.5], [0.5, 0.5], [0.5, -0.5]].map(([di, dj]) => t.h + 0.5 + t.ramp[0] * di + t.ramp[1] * dj);
+  }
+  topCorners(c) {
+    const g = this.pos(c, 0), hc = this.corners(c), { hw, hh, zs } = this;
+    return [[g[0], g[1] - hh - hc[0] * zs], [g[0] + hw, g[1] - hc[1] * zs], [g[0], g[1] + hh - hc[2] * zs], [g[0] - hw, g[1] - hc[3] * zs]];
+  }
+  // A ramp takes its height from the cube at its low end, or else from the one at its high end.
+  settleRamps() {
+    const ramps = [...this.tile.entries()].filter(([, t]) => t.ramp).map(([k, t]) => [k.split(",").map(Number), t]);
+    for (let pass = 0; pass < 12; pass++) for (const [[i, j], t] of ramps) {
+      if (t.h !== undefined) continue;
+      const D = t.ramp, lo = this.edgeOf(this.tile.get((i - D[0]) + "," + (j - D[1])), D);
+      const hi = this.edgeOf(this.tile.get((i + D[0]) + "," + (j + D[1])), [-D[0], -D[1]]);
+      if (lo !== undefined) t.h = lo; else if (hi !== undefined && pass > 2) t.h = Math.max(0, hi - 1);
+    }
+    for (const [, t] of ramps) if (t.h === undefined) t.h = 0;
+  }
+  // Can something on cube a hop one step in direction d? "ok", "hole" (it falls) or "wall" (too high).
+  // Going down is fine, going up needs a ramp.
+  step(a, d) {
+    const b = [a[0] + d[0], a[1] + d[1]], tb = this.tile.get(key(b));
+    if (!tb) return "hole";
+    const ta = this.tile.get(key(a)), from = ta ? this.edgeOf(ta, d) : Infinity;
+    return this.edgeOf(tb, [-d[0], -d[1]]) <= from + 0.01 ? "ok" : "wall";
+  }
+  liftH(c) {                         // a lift hovers level with the highest cube edge next to it
+    let h = 0;
+    for (const a in DIRS) { const d = DIRS[a], e = this.edgeOf(this.tile.get(key([c[0] + d[0], c[1] + d[1]])), [-d[0], -d[1]]); if (e !== undefined) h = Math.max(h, e); }
+    return h;
+  }
+  depth(c) { return c[0] + c[1]; }
   actor(kind, cell) {
     const p = this.pos(cell);
-    return { kind, cell, x: p[0], y: p[1], busy: false, falling: false, timer: 0, dirs: [], anim: "idle", flip: false, z: 0, visible: true, dead: false, color: kind === "gel" ? pick(GEL_COLORS) : null };
+    return { kind, cell, x: p[0], y: p[1], h: this.hAt(cell), busy: false, falling: false, timer: 0, dirs: [], anim: "idle", flip: false, z: 0, visible: true, dead: false, color: kind === "gel" ? pick(GEL_COLORS) : null };
   }
-  hop(a, to, time, height, done) {
-    a.busy = true;
-    const fx = a.x, fy = a.y, t = this.pos(to);
+  hop(a, to, time, height, done, hTo = this.hAt(to)) {
+    a.busy = true; a.prev = a.cell;
+    const fx = a.x, fy = a.y, fh = a.h || 0, t = this.pos(to, hTo);
     a.cell = to;
-    this.tween(time, k => { a.x = fx + (t[0] - fx) * k; a.y = fy + (t[1] - fy) * k - height * 4 * k * (1 - k); },
-      () => { a.busy = false; if (done) done(); }, a);
+    this.tween(time, k => { a.x = fx + (t[0] - fx) * k; a.y = fy + (t[1] - fy) * k - height * 4 * k * (1 - k); a.h = fh + (hTo - fh) * k; },
+      () => { a.busy = false; a.prev = null; if (done) done(); }, a);
+  }
+  bump(a) {                          // a little hop on the spot against a wall that is too high
+    a.busy = true;
+    const y0 = a.y;
+    this.tween(0.16, k => { a.y = y0 - 3 * Math.sin(Math.PI * k); }, () => { a.y = y0; a.busy = false; }, a);
   }
   update(dt) {
     this.t += dt; this.celebrate = Math.max(this.celebrate - dt, 0);
@@ -1462,9 +1573,11 @@ class Cheese extends Game {
   ratHop(dir) {
     const r = this.rat, to = [r.cell[0] + dir[0], r.cell[1] + dir[1]];
     r.flip = (dir[0] === 0 && dir[1] === -1) || (dir[0] === 1 && dir[1] === 0);
+    const st = this.lifts.has(key(to)) ? "lift" : this.step(r.cell, dir);
+    if (st === "wall") { this.bump(r); return; }
     Sound.play("hop");
-    if (this.lifts.has(key(to))) { this.rideLift(to); return; }
-    if (!this.onBoard(to)) { this.fall(r, to); return; }
+    if (st === "lift") { this.rideLift(to); return; }
+    if (st === "hole") { this.fall(r, to); return; }
     r.anim = "jump";
     this.hop(r, to, this.c.ratHop, 14, () => {
       if (this.state !== "play") return;
@@ -1514,7 +1627,7 @@ class Cheese extends Game {
     const p = this.pos(this.bonus.cell), { hw, hh, t } = this, x = p[0], y = p[1];
     // A pulsing frame on the tile, and a thin line up to the number, show which cube it belongs to.
     const a = 0.6 + 0.4 * Math.sin(t * 7), c = `rgba(255,242,127,${a})`;
-    line([[x, y - hh], [x + hw, y], [x, y + hh], [x - hw, y], [x, y - hh]], c, 1.6);
+    const q = this.topCorners(this.bonus.cell); line([...q, q[0]], c, 1.6);
     line([[x, y - 5], [x, y - 11]], c, 1);
     ctx.save(); ctx.translate(x, y - 17 + Math.sin(t * 3) * 1.5);
     text(String(this.bonus.points), 0, 0, { size: 10, w: 800, color: "#fff27f", outline: "#22103a" });
@@ -1530,14 +1643,14 @@ class Cheese extends Game {
     this.visited = new Set(d.visited);
     for (const k of [...this.lifts.keys()]) if (!d.lifts.includes(k)) this.lifts.delete(k);
     const p = this.pos(d.rat);
-    this.rat.cell = d.rat; this.rat.x = p[0]; this.rat.y = p[1];
+    this.rat.cell = d.rat; this.rat.x = p[0]; this.rat.y = p[1]; this.rat.h = this.hAt(d.rat);
     this.levelT = d.levelT; this.luckyAt = d.luckyDone ? Infinity : d.luckyAt; this.bonusDone = d.bonusDone;
     this.cam = this.camGoal();
   }
-  drawLucky(p) {
+  drawLucky(p, cell) {
     const l = this.lucky, t = this.t, { hw, hh } = this;
     if (l.left < 3 && mod(l.left, 0.3) < 0.1) return;
-    const [x, y] = p, top = [[x, y - hh], [x + hw, y], [x, y + hh], [x - hw, y]];
+    const [x, y] = p, top = this.topCorners(cell);
     poly(top, css(hsv(t * 1.6, 0.55, 1), 0.65 + 0.35 * Math.sin(t * 14)));
     glow(x, y - 2, hw * 1.5, hh * 2.2, "rgba(255,240,170,A)", 0.55 + 0.3 * Math.sin(t * 11));
     for (let i = 0; i < 14; i++) {
@@ -1571,6 +1684,7 @@ class Cheese extends Game {
     if (a === this.rat) a.from = a.cell;
     // Cubes in front of the spot? Then it falls behind them.
     if ([[1, 0], [0, 1], [1, 1]].some(d => this.onBoard([to[0] + d[0], to[1] + d[1]]))) a.z = -1;
+    const fromT = this.tile.get(key(a.cell)), fh = fromT ? this.edgeOf(fromT, [to[0] - a.cell[0], to[1] - a.cell[1]]) : (a.h || 0);
     this.hop(a, to, 0.25, 10, () => {
       a.busy = true;
       const y0 = a.y;
@@ -1580,7 +1694,7 @@ class Cheese extends Game {
         if (a.kind === "cat") { this.catsOut--; this.catT = this.c.catDelay; }
         a.dead = true;
       }, a);
-    });
+    }, fh);
   }
   rideLift(cell) {
     const r = this.rat, k = key(cell), l = this.lifts.get(k);
@@ -1600,7 +1714,7 @@ class Cheese extends Game {
         r.z = 1;
         this.hop(r, this.start, 0.3, 6, () => { r.z = 0; r.anim = "idle"; this.riding = false; });
       });
-    });
+    }, l.h);
   }
   spawn(dt) {
     const c = this.c;
@@ -1626,7 +1740,7 @@ class Cheese extends Game {
       cells = near.length ? near : this.cells.filter(c => hopsBetween(c, r) > this.c.safe && hopsBetween(c, r) <= 9);
     }
     if (!cells.length) cells = this.cells.filter(c => hopsBetween(c, r) >= 2);
-    const cell = pick(cells.filter(c => this.onBoard(c))), e = this.actor(kind, cell), ty = e.y;
+    const cell = pick(cells.filter(c => this.onBoard(c))), e = this.actor(kind, cell), ty = e.y;   // (actor() sets its height)
     // It appears just above its own cube and drops the last bit, so it is never seen over a hole.
     e.dirs = side.dirs; e.y = ty - 18; e.busy = true; e.landing = true; e.anim = "jump";   // harmless until it lands
     this.enemies.push(e);
@@ -1642,7 +1756,9 @@ class Cheese extends Game {
     if (e.timer > 0) return;
     if (e.kind === "gel") {
       e.timer = this.c.gelHop;
-      const d = pick(e.dirs);
+      const ds = e.dirs.filter(d => this.step(e.cell, d) !== "wall");   // a jelly only bounces against a wall and waits
+      if (!ds.length) return;
+      const d = pick(ds);
       this.enemyHop(e, [e.cell[0] + d[0], e.cell[1] + d[1]]);
     } else {
       e.timer = this.c.catHop;
@@ -1653,8 +1769,8 @@ class Cheese extends Game {
   distancesTo(goal) {
     const dist = new Map([[key(goal), 0]]), queue = [goal];
     for (let q = 0; q < queue.length; q++) for (const a in DIRS) {
-      const n = [queue[q][0] + DIRS[a][0], queue[q][1] + DIRS[a][1]];
-      if (this.onBoard(n) && !dist.has(key(n))) { dist.set(key(n), dist.get(key(queue[q])) + 1); queue.push(n); }
+      const d = DIRS[a], n = [queue[q][0] + d[0], queue[q][1] + d[1]];   // from n, one hop back onto queue[q]
+      if (this.onBoard(n) && !dist.has(key(n)) && this.step(n, [-d[0], -d[1]]) === "ok") { dist.set(key(n), dist.get(key(queue[q])) + 1); queue.push(n); }
     }
     return dist;
   }
@@ -1663,7 +1779,7 @@ class Cheese extends Game {
     let best = cat.cell, bd = 1e9;
     for (const a in DIRS) {
       const to = [cat.cell[0] + DIRS[a][0], cat.cell[1] + DIRS[a][1]];
-      if (!this.onBoard(to) && !(this.riding && same(to, goal))) continue;
+      if (this.step(cat.cell, DIRS[a]) !== "ok" && !(this.riding && same(to, goal) && !this.onBoard(to))) continue;
       const d = dist ? (dist.has(key(to)) ? dist.get(key(to)) : 1e9) : hopsBetween(goal, to);
       if (d < bd) { bd = d; best = to; }
     }
@@ -1689,7 +1805,7 @@ class Cheese extends Game {
   checkCatch() {
     const r = this.rat;
     if (this.riding || r.falling || this.safeT > 0) return;
-    for (const e of this.enemies) if (!e.falling && !e.landing && Math.hypot(e.x - r.x, e.y - r.y) < 9) { this.caught(); return; }
+    for (const e of this.enemies) if (!e.falling && !e.landing && Math.hypot(e.x - r.x, e.y - r.y) < 9 && Math.abs((e.h || 0) - (r.h || 0)) < 0.6) { this.caught(); return; }
   }
   caught() {
     const r = this.rat;
@@ -1704,7 +1820,7 @@ class Cheese extends Game {
     this.lives--;
     if (this.lives <= 0) { r.visible = false; this.lose(); return; }
     const safe = this.safeCell(fell ? (this.cells.length > 36 ? r.from : this.start) : r.cell), p = this.pos(safe);
-    r.cell = safe; r.x = p[0]; r.y = p[1]; r.z = 0; r.falling = false; r.busy = false; r.anim = "idle";
+    r.cell = safe; r.x = p[0]; r.y = p[1]; r.h = this.hAt(safe); r.z = 0; r.falling = false; r.busy = false; r.anim = "idle";
     this.after(0.6, () => { this.safeT = 1.2; this.state = "play"; });
   }
   safeCell(near) {
@@ -1747,18 +1863,24 @@ class Cheese extends Game {
       sprite(Img.cheese, 0, 0, 12, 9, a.x - 6, a.y - 5 + bob - 4.5);
     }
   }
-  drawBoard() {
-    const t = this.t, x0 = this.cam.x + 120 - 24, x1 = this.cam.x + 360 + 24, y0 = this.cam.y - 40, y1 = this.cam.y + 270 + 24;
-    for (const cell of this.cells) {
-      const [i, j] = cell, p = this.pos(cell);
-      if (p[0] < x0 || p[0] > x1 || p[1] < y0 || p[1] > y1) continue;
-      let hue = mod(i * 0.11 + j * 0.06 + 0.55, 1);
-      if (this.celebrate > 0) hue = mod(hue + t * 2, 1);
-      const wave = Math.pow(Math.max(Math.sin(t * 2.6 - (i + j) * 0.55 + i * 0.3), 0), 6);
-      drawCube(p[0], p[1], this.hw, this.hh, this.dep, hue, this.visited.has(key(cell)), wave);
-      if (this.lucky && same(cell, this.lucky.cell)) this.drawLucky(p);
-      if (wave > 0.6) rect(p[0] + Math.sin(i * 7) * 6 - 1, p[1] + Math.cos(j * 5) * 3 - 1, 2, 2, `rgba(255,255,255,${wave})`);
-    }
+  drawCell(cell) {
+    const t = this.t, [i, j] = cell, p = this.pos(cell), g = this.pos(cell, 0);
+    if (p[0] < this.cam.x + 96 || p[0] > this.cam.x + 384 || p[1] > this.cam.y + 294 || g[1] + this.dep < this.cam.y - 40) return;
+    let hue = mod(i * 0.11 + j * 0.06 + 0.55, 1);
+    if (this.celebrate > 0) hue = mod(hue + t * 2, 1);
+    const wave = Math.pow(Math.max(Math.sin(t * 2.6 - (i + j) * 0.55 + i * 0.3), 0), 6);
+    drawBlock(g[0], g[1], this.hw, this.hh, this.dep, this.zs, this.corners(cell), hue, this.visited.has(key(cell)), wave);
+    if (this.lucky && same(cell, this.lucky.cell)) this.drawLucky(p, cell);
+    if (wave > 0.6) rect(p[0] + Math.sin(i * 7) * 6 - 1, p[1] + Math.cos(j * 5) * 3 - 1, 2, 2, `rgba(255,255,255,${wave})`);
+  }
+  // Everything on the board in painter's order: row + column first, cubes before what stands on them.
+  drawWorld(all) {
+    const items = [], dOf = a => a.busy && a.prev ? Math.max(this.depth(a.prev), this.depth(a.cell)) : this.depth(a.cell);
+    for (const c of this.cells) items.push({ d: this.depth(c), o: 0, y: 0, f: () => this.drawCell(c) });
+    this.lifts.forEach(l => items.push({ d: this.depth(l.cell), o: 1, y: l.y, f: () => this.drawLift(l) }));
+    this.cheeses.forEach(c => items.push({ d: this.depth(c.cell), o: 1, y: c.y, f: () => this.drawActor(c) }));
+    for (const a of all) if (a.z === 0) items.push({ d: dOf(a), o: 1, y: a.y, f: () => this.drawActor(a) });
+    items.sort((a, b) => a.d - b.d || a.o - b.o || a.y - b.y).forEach(it => it.f());
   }
   drawLift(l) {
     for (let k = 0; k < 4; k++) {
@@ -1777,10 +1899,8 @@ class Cheese extends Game {
     ctx.translate(-this.cam.x, -this.cam.y);
     const all = [...this.enemies, this.rat];
     all.filter(a => a.z < 0).forEach(a => this.drawActor(a));
-    this.drawBoard();
-    this.lifts.forEach(l => this.drawLift(l));
+    this.drawWorld(all);
     if (this.riderLift) this.drawLift(this.riderLift);
-    [...this.cheeses.values(), ...all.filter(a => a.z === 0)].sort((a, b) => a.y - b.y).forEach(a => this.drawActor(a));
     all.filter(a => a.z > 0).forEach(a => this.drawActor(a));
     for (const f of this.fx) {
       const k = f.t / 0.12, s = 1 + 0.6 * k;
@@ -3601,8 +3721,8 @@ class Moonbase extends Space {
     if (this.state === "splash") G.intro = (G.intro || 0) + dt;
     const music = this.state === "splash" || this.state === "ready" || this.state === "play" || this.state === "dying";
     if (G.octo) {                      // the last boss has its own tune, on a loop, right through to the name entry
-      if (!this.musicOver && !Sound.live.music && Sound.ac && Sound.ac.state === "running" && this.state !== "lose") Sound.playSid(deltaSid(), 12, "music", 4);
-      if (this.state === "lose" && Sound.live.music) Sound.stop("music");
+      if (!this.musicOver && !(Sound.live.music && Sound.live.music.sid) && Sound.ac && Sound.ac.state === "running" && this.state !== "lose") Sound.playSid(deltaSid(), 12, "music", 4);
+      if (this.state === "lose" && Sound.live.music) Sound.stop("music");   // (the boss tune replaces any warp tune still playing from level 12)
     } else if (music && Sound.ac && Sound.ac.state === "running") {
       const order = ["gyrtheme", "gyrtheme", "gyrbridge"], now = Sound.ac.currentTime;
       const start = k => { G.music = k; G.segStart = now; Sound.play(k === "intro" ? "gyrintro" : order[k], false, 1, "music"); };
@@ -4453,9 +4573,12 @@ class Moonbase extends Space {
   drawAlien(a, r) { const t = MB_ALIENS[a.row % 3]; ctx.drawImage(t.img[this.frame], Math.round(r.x), Math.round(r.y)); }
   drawHull(x) { ctx.drawImage(mbShip(), Math.round(x) - 8, CANNON_Y - 11); }
   drawFire(f) {
-    const c = mod(Math.floor(f.x), 2) ? "#ff5a6a" : "#ff3b4e";
-    glow(f.x, f.y, 5, 9, "rgba(255,255,255,A)", 0.18);
-    for (let i = -5; i < 5; i += 4) rect(Math.round(f.x) - 1, Math.round(f.y) + i, 2, 3, c);
+    // a flickering zigzag bolt: a white-hot core, a red rim and a red glow, easy to see on every background
+    const x = Math.round(f.x), y = Math.round(f.y), o = Math.floor(this.t * 12) % 2 ? 1 : -1;
+    glow(f.x, f.y, 10, 14, "rgba(255,60,80,A)", 0.85);
+    ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 2 * o, y - 3); ctx.lineTo(x - 2 * o, y + 1); ctx.lineTo(x + 2 * o, y + 5); ctx.lineTo(x, y + 7);
+    ctx.lineJoin = "miter"; ctx.strokeStyle = "#ff3b4e"; ctx.lineWidth = 3.6; ctx.stroke();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.4; ctx.stroke();
   }
   drawPanels() {
     const life = (x, y) => ctx.drawImage(mbShip(), Math.round(x), Math.round(y) - 1, 12, 8);
