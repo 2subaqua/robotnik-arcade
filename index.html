@@ -3638,7 +3638,7 @@ class Moonbase extends Space {
     G.shots = G.shots.filter(s => s.r > 10 && !this.shotHitsSpace(s));
     // Enemy bullets and rocks fly outward.
     const [px, py] = this.gpos(GR, G.a);
-    for (const b of G.bullets) { const v = 34 + Math.hypot(b.x - GX, b.y - GY) * 0.95; b.x += b.dx * v * dt; b.y += b.dy * v * dt; }
+    for (const b of G.bullets) { const v = (34 + Math.hypot(b.x - GX, b.y - GY) * 0.95) * (b.red ? 1 : 0.7); /* levels 11-12 stars fly 30% slower */ b.x += b.dx * v * dt; b.y += b.dy * v * dt; }
     for (const m of G.rocks) { m.r += (26 + m.r * 0.85) * dt; m.spin += dt * 4; }
     const hitsShip = (r, a, rad) => { const [x, y] = this.gpos(r, a); return Math.hypot(x - px, y - py) < rad; };
     if (G.safe <= 0) {
