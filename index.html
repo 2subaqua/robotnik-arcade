@@ -3626,7 +3626,10 @@ class Moonbase extends Space {
       G.a += mv; G.roll = (G.roll || 0) + Math.abs(mv);                 // distance flown picks the ship's frame: it banks as it goes
     }
     // Fire toward the centre: three shots at a time, or three pairs with the double gun.
-    if (Input.just.a && G.shots.length < (G.double ? 6 : 3)) {
+    // Hold fire for a steady stream (as in Gyruss); a tap fires at once.
+    G.fireCD = (G.fireCD || 0) - dt;
+    if ((Input.just.a || (Input.held.a && G.fireCD <= 0)) && G.shots.length < (G.double ? 10 : 5)) {
+      G.fireCD = 0.13;
       const offs = G.double ? [-4, 4] : [0];
       for (const o of offs) G.shots.push({ r: GR - 10, a: G.a, o });
       this.snd("shoot"); G.flash = 0;
@@ -3681,7 +3684,7 @@ class Moonbase extends Space {
         f.r = f.fromR + (GR * 0.86 - f.fromR) * Math.sin(Math.PI * u);
         f.a = f.fromA + f.turn * u;
         // three shots on the way out and back
-        if ((f.fired || 0) < 3 && u > 0.25 + (f.fired || 0) * 0.22) { f.fired = (f.fired || 0) + 1; if (this.state === "play") { this.foeShoots(f); } }
+        if ((f.fired || 0) < 2 && u > 0.3 + (f.fired || 0) * 0.3) { f.fired = (f.fired || 0) + 1; if (this.state === "play") { this.foeShoots(f); } }
         if (u >= 1) { f.state = "back"; f.t = 0; f.fromR = f.r; f.fromA = f.a; }
       } else if (f.state === "leave") {
         f.r += (30 + f.r * 1.2) * dt; f.a += 0.6 * dt;
@@ -3698,7 +3701,7 @@ class Moonbase extends Space {
       }
       // The ring and the newcomers shoot too: a shot from a random enemy every so often, aimed out at the ship.
       if ((G.volleyT = (G.volleyT ?? 1.5) - dt) <= 0) {
-        G.volleyT = rnd(0.5, 1.0) - G.wave * 0.03;
+        G.volleyT = rnd(0.8, 1.5) - G.wave * 0.04;
         const shooters = G.foes.filter(f => f.on && (f.state === "form" || f.state === "enter" || f.state === "join"));
         if (shooters.length) {
           const f = pick(shooters), toward = Math.atan2(Math.sin(G.a - f.a), Math.cos(G.a - f.a));
@@ -3730,7 +3733,7 @@ class Moonbase extends Space {
       if (style === "out") path = { r0: 4, r1: 34, bulge: 72, a0, turn: dir * TAU * 1.15 };
       else if (style === "behind") path = { r0: GR + 34, r1: 34, bulge: -20, a0, turn: dir * TAU * 0.8 };
       else { const side = i % 2; path = { r0: 4, r1: 34, bulge: 66, a0: a0 + side * Math.PI, turn: (side ? -dir : dir) * TAU * 0.9 }; }
-      G.foes.push({ kind, state: "enter", t: -(style === "twin" ? Math.floor(i / 2) : i) * 0.17, dur: 2.6, path, slot: i, r: path.r0, a: path.a0, frameT: rnd(0, 1), on: false });
+      G.foes.push({ kind, state: "enter", t: -(style === "twin" ? Math.floor(i / 2) : i) * 0.24, dur: 2.8, path, slot: i, r: path.r0, a: path.a0, frameT: rnd(0, 1), on: false });
     }
   }
   launchSats() {
@@ -3746,7 +3749,10 @@ class Moonbase extends Space {
     for (const f of G.foes) {
       if (!f.on || f.dead) continue;
       const [fx, fy] = this.gpos(f.r, f.a);
-      if (Math.hypot(fx - x, fy - y) < 2.5 + 7 * this.gsize(f.r)) { this.killFoe(f, true); return true; }
+      // The shot is a streak along its line: generous along the line, fair across it.
+      // An enemy that crosses your line of fire flies into the stream, so a whole chain can be picked off.
+      const k = this.gsize(f.r), d = Math.atan2(Math.sin(f.a - s.a), Math.cos(f.a - s.a)), across = d * f.r - s.o * this.gsize(s.r), along = f.r - s.r;
+      if (Math.abs(across) < 3 + 7 * k && Math.abs(along) < 7 + 11 * k) { this.killFoe(f, true); return true; }
     }
     for (const t of G.sats) {
       const [r, a] = this.satPos(t), [tx, ty] = this.gpos(r, a);
