@@ -2137,6 +2137,87 @@ function randomBoard(type, t, scale, letter) {
   if (type === "rooms") { const n = Math.max(2, Math.round((2 + t * 1.5) * scale)); return finishGrid(roomsGrid(n + ri(0, 1), Math.max(2, n - ri(0, 1)), ri(4, 5), t < 0.4 ? 2 : pick([1, 2]))); }
   return finishGrid(blobGrid(t, scale));
 }
+/* Heights for the random levels. Terraces rise towards the back of the board, so a high cube never hides what
+   stands behind it, and ramps lead up wherever a terrace could not be reached otherwise. Every board is checked
+   before it is used: all cubes reachable from the start without a deadly fall, and nothing hidden. */
+const RAMP_CHAR = { "-1,0": "^", "0,1": ">", "1,0": "v", "0,-1": "<" };
+function heightTiles(map) {          // the same rules as the game: # 1-9 ^ > v <, ramps take their height from the low end
+  const T = new Map();
+  map.forEach((row, i) => [...row].forEach((ch, j) => {
+    const t = ch === "#" ? { h: 0 } : ch >= "0" && ch <= "9" ? { h: +ch } : RAMPS[ch] ? { ramp: RAMPS[ch] } : null;
+    if (t) T.set(i + "," + j, t);
+  }));
+  const edge = (t, d) => !t || t.h === undefined ? undefined : !t.ramp ? t.h : same(d, t.ramp) ? t.h + 1 : (d[0] === -t.ramp[0] && d[1] === -t.ramp[1]) ? t.h : t.h + 0.5;
+  for (let pass = 0; pass < 12; pass++) for (const [k, t] of T) if (t.ramp && t.h === undefined) {
+    const [i, j] = k.split(",").map(Number), D = t.ramp, lo = edge(T.get((i - D[0]) + "," + (j - D[1])), D);
+    if (lo !== undefined) t.h = lo; else if (pass > 2) t.h = 0;
+  }
+  return { T, edge };
+}
+function heightCheck(map, start) {
+  const { T, edge } = heightTiles(map), at = (i, j) => T.get(i + "," + j);
+  const step = (a, d) => { const ta = at(...a), tb = at(a[0] + d[0], a[1] + d[1]); if (!tb) return "hole"; const f = edge(ta, d), to = edge(tb, [-d[0], -d[1]]); return to > f + 0.01 ? "wall" : f - to >= 1.99 ? "cliff" : "ok"; };
+  const seen = new Set([key(start)]), q = [start];
+  for (let n = 0; n < q.length; n++) for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const c = [q[n][0] + d[0], q[n][1] + d[1]];
+    if (!seen.has(key(c)) && step(q[n], d) === "ok") { seen.add(key(c)); q.push(c); }
+  }
+  // Hidden: a cube a rows nearer and b columns nearer reaches above the feet of whatever stands here.
+  let hidden = false;
+  const low = t => t.h, high = t => t.h + (t.ramp ? 1 : 0);
+  for (const [k, t] of T) {
+    const [i, j] = k.split(",").map(Number);
+    for (let a = 0; a <= 3 && !hidden; a++) for (let b = 0; b <= 3; b++) {
+      if (a + b === 0 || Math.abs(a - b) > 1) continue;
+      const f = at(i + a, j + b);
+      if (f && high(f) > low(t) + (a + b) - (a === b ? 1 : 0)) { hidden = true; break; }
+    }
+  }
+  return { reach: seen.size, total: T.size, hidden, step, at };
+}
+function addHeights(res, top, traps) {
+  const cells = res.cells, H = new Map(cells.map(c => [key(c), 0]));
+  const ds = cells.map(c => c[0] + c[1]), d0 = Math.min(...ds), d1 = Math.max(...ds);
+  const p1 = rnd(0, 6), p2 = rnd(0, 6), wob = c => Math.round(Math.sin(c[0] * 0.9 + p1) * 1.2 + Math.sin(c[1] * 0.7 + p2) * 1.2);
+  const cuts = Array.from({ length: top }, (_, k) => d0 + (d1 - d0) * (k + 1) / (top + 1) + rnd(-1.5, 1.5));
+  for (const c of cells) H.set(key(c), cuts.filter(x => c[0] + c[1] + wob(c) < x).length);     // higher at the back
+  const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (let changed = true, n = 0; changed && n < 50; n++) {   // neighbours never more than one step apart
+    changed = false;
+    for (const c of cells) for (const d of N4) { const o = key([c[0] + d[0], c[1] + d[1]]); if (H.has(o) && H.get(o) > H.get(key(c)) + 1) { H.set(o, H.get(key(c)) + 1); changed = true; } }
+  }
+  const ramps = new Map();
+  const toMap = () => { const m = res.map.map(r => [...r]); for (const c of cells) { const k = key(c), h = H.get(k); m[c[0]][c[1]] = ramps.get(k) || (h ? String(h) : "#"); } return m.map(r => r.join("")); };
+  // Ramps: from a terrace up onto the next one wherever the higher one cannot be reached, then one or two more.
+  const rampSpots = (reachable, wantNew) => {
+    const out = [];
+    for (const c of cells) for (const D of N4) {
+      const k = key(c), h = H.get(k), u = key([c[0] + D[0], c[1] + D[1]]), lo = key([c[0] - D[0], c[1] - D[1]]);
+      if (ramps.has(k) || same(c, res.start) || H.get(u) !== h + 1 || H.get(lo) !== h || ramps.has(lo) || ramps.has(u)) continue;
+      if (!reachable.has(k) || (wantNew && reachable.has(u))) continue;
+      out.push([k, RAMP_CHAR[D.join(",")]]);
+    }
+    return out;
+  };
+  const reachSet = () => { const ch = heightCheck(toMap(), res.start), seen = new Set([key(res.start)]), q = [res.start]; for (let n = 0; n < q.length; n++) for (const d of N4) { const c = [q[n][0] + d[0], q[n][1] + d[1]]; if (!seen.has(key(c)) && ch.step(q[n], d) === "ok") { seen.add(key(c)); q.push(c); } } return seen; };
+  for (let n = 0; n < 24; n++) { const R = reachSet(); if (R.size === cells.length) break; const sp = rampSpots(R, true); if (!sp.length) break; const [k, ch] = pick(sp); ramps.set(k, ch); }
+  for (let n = ri(1, 2); n > 0; n--) { const sp = rampSpots(reachSet(), false); if (sp.length) { const [k, ch] = pick(sp); ramps.set(k, ch); } }
+  // Traps on the big boards: a cube sunk one step below its terrace, right under a higher edge behind it,
+  // so jumping down there from the back is a fall of two floors. It can still be walked onto from the side.
+  for (let n = 0, tries = 0; n < traps && tries < 12; tries++) {
+    const cand = cells.filter(c => { const k = key(c), h = H.get(k), back = [key([c[0] - 1, c[1]]), key([c[0], c[1] - 1])];
+      return h >= 1 && !ramps.has(k) && !same(c, res.start) && back.some(o => H.get(o) === h + 1 && !ramps.has(o))
+        && N4.some(d => { const o = key([c[0] + d[0], c[1] + d[1]]); return H.get(o) === h && !ramps.has(o); })
+        && N4.every(d => !ramps.has(key([c[0] + d[0], c[1] + d[1]]))); });
+    if (!cand.length) break;
+    const c = pick(cand), k = key(c), old = H.get(k);
+    H.set(k, old - 1);
+    const ch = heightCheck(toMap(), res.start);
+    if (ch.reach < ch.total || ch.hidden) H.set(k, old); else n++;
+  }
+  const map = toMap(), ch = heightCheck(map, res.start);
+  return ch.reach === ch.total && !ch.hidden && map.some(r => /[1-9]/.test(r)) ? map : null;
+}
 function randomLifts(res, n) {
   const off = new Map(), on = new Set(res.cells.map(key));
   for (const c of res.cells) for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -2174,6 +2255,11 @@ function randomLevels() {
     }
     last = type;
     const big = res.count > 150, mid = res.count > 75;
+    // From level 4 on, about half the boards get terraces: up to one step on small boards, up to three on big ones.
+    if (n >= 4 && res.count >= 40 && Math.random() < (big ? 0.65 : 0.45)) {
+      const top = big ? ri(2, 3) : mid ? ri(1, 2) : 1;
+      for (let k = 0; k < 8; k++) { const m = addHeights(res, top, big ? ri(1, 2) : 0); if (m) { res.map = m; break; } }
+    }
     list.push({
       map: res.map,
       lifts: randomLifts(res, 2 + Math.round(t * 2) + (big ? 1 : 0) + (type === "maze" ? 1 : 0)),
