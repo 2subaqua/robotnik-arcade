@@ -297,9 +297,11 @@ const LEVELS = {
     { earth: true, waves: 5, perWave: 7, fire: 1.6, ground: "dusk", types: ["vee", "snake", "slant", "vee", "snake"] },
     { earth: true, waves: 5, perWave: 7, fire: 1.7, ground: "night", types: ["snake", "vee", "circle", "snake", "vee"] },
     { earth: true, boss: true, fire: 1.5, ground: "night" },
-    // The caves, seen from the side. gap: how wide the cave is, [narrowest, widest].
-    { earth: true, cave: true, splash: true, waves: 6, perWave: 3, gap: [80, 150], fire: 1.3, powerEvery: 7 },
-    { earth: true, cave: true, waves: 6, perWave: 3, gap: [52, 95], fire: 1.5, powerEvery: 7 },
+    // The caves, seen from the side: one long cave drawn by hand (CAVE_PLAN), level 10 flies the first half
+    // and level 11 carries on into the second. from/to: where along the cave the level starts and ends.
+    // rockets: how often the launchers on the floor fire (higher = more often). Every 6 kills a power-up cylinder stands in the cave.
+    { earth: true, cave: true, design: true, splash: true, from: 0, to: 4400, waves: 11, perWave: 3, fire: 1.3, rockets: 1 },
+    { earth: true, cave: true, design: true, from: 4400, to: 8800, waves: 13, perWave: 3, fire: 1.5, rockets: 1.35 },
     // The last level: the mothership again, standing upright in a big cave.
     { earth: true, cave: true, boss: true, gap: [244, 252], fire: 1.5, powerEvery: 7 },
   ],
@@ -2287,6 +2289,51 @@ function pixelRows(rows, pal) {
   return c;
 }
 const CAVE_SHIP_X = LEFT + 34;
+// The cave of levels 10 and 11, drawn by hand. Each point is [x along the cave, middle, height of the opening];
+// the rock runs smoothly from point to point. Wide chambers, winding bends and narrow passages with brick walls.
+const CAVE_PLAN = [
+  [0, 135, 210], [300, 135, 200], [600, 108, 150], [900, 160, 140], [1150, 135, 220], [1500, 135, 230],
+  [1720, 100, 120], [1900, 168, 112], [2040, 135, 72], [2220, 135, 72], [2360, 135, 190], [2700, 122, 170],
+  [3000, 168, 122], [3200, 102, 130], [3400, 135, 214], [3700, 135, 220], [3830, 150, 76], [3980, 150, 76],
+  [4120, 135, 176], [4400, 135, 176],
+  [4700, 100, 124], [4950, 170, 112], [5130, 135, 62], [5310, 135, 62], [5460, 135, 214], [5820, 135, 226],
+  [6000, 90, 112], [6250, 180, 104], [6430, 135, 66], [6610, 135, 66], [6760, 112, 156], [7000, 165, 124],
+  [7250, 135, 220], [7560, 135, 226], [7690, 135, 60], [7930, 135, 60], [8080, 135, 176], [8800, 135, 190],
+];
+const CAVE_WALLS = [2120, 3900, 5220, 6520, 7760, 7840];        // brick walls across the narrow passages
+const CAVE_LAUNCHERS = [450, 1260, 1430, 1600, 2450, 2620, 2880, 3460, 3640, 4230,
+  4620, 5520, 5660, 5800, 6820, 7060, 7300, 7440, 7570, 8160, 8330, 8520];   // rocket launchers on the floor
+let caveDesignCache = null;
+function caveDesign() {
+  if (caveDesignCache) return caveDesignCache;
+  const N = Math.ceil(9600 / 4), top = new Array(N), bot = new Array(N);
+  const at = x => {
+    let k = 0; while (k < CAVE_PLAN.length - 2 && CAVE_PLAN[k + 1][0] <= x) k++;
+    const [x0, m0, g0] = CAVE_PLAN[k], [x1, m1, g1] = CAVE_PLAN[k + 1], u = clamp((x - x0) / (x1 - x0), 0, 1), e = u * u * (3 - 2 * u);
+    return [m0 + (m1 - m0) * e, g0 + (g1 - g0) * e];
+  };
+  for (let i = 0; i < N; i++) {
+    const [m, g] = at(i * 4), j1 = Math.sin(i * 1.7) * 2 + Math.sin(i * 0.63) * 2.5, j2 = Math.sin(i * 1.3 + 2) * 2 + Math.sin(i * 0.51) * 2.5;
+    top[i] = m - g / 2 + Math.abs(j1); bot[i] = m + g / 2 - Math.abs(j2);
+  }
+  // Stalactites and stalagmites: the same every time (a fixed seed), only where the cave is roomy,
+  // never in front of a wall and never on top of a rocket launcher.
+  let seed = 7;
+  const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let x = 160; x < 9400; x += 60 + r() * 80) {
+    const [, g] = at(x), up = r() < 0.5, half = 8 + r() * 7, tall = g * (0.17 + r() * 0.17);
+    if (g < 110 || CAVE_WALLS.some(w => Math.abs(w - x) < 110)) continue;
+    if (!up && CAVE_LAUNCHERS.some(l => Math.abs(l - x) < 34)) continue;
+    for (let i = Math.floor((x - half) / 4); i <= Math.ceil((x + half) / 4); i++) {
+      const k = 1 - Math.abs(i * 4 - x) / half;
+      if (k <= 0 || i < 0 || i >= N) continue;
+      if (up) top[i] = Math.max(top[i], at(i * 4)[0] - at(i * 4)[1] / 2 + tall * k);
+      else bot[i] = Math.min(bot[i], at(i * 4)[0] + at(i * 4)[1] / 2 - tall * k);
+    }
+  }
+  for (let i = 0; i < N; i++) { top[i] = Math.round(clamp(top[i], 4, 250)); bot[i] = Math.round(clamp(bot[i], top[i] + 20, 266)); }
+  return caveDesignCache = { top, bot };
+}
 let sideShipCv = null;
 const sideShip = () => sideShipCv || (sideShipCv = pixelRows([   // the cave fighter: low body, tall tail fin, nose to the right
   "kk........................", "kgk.......................", "kgk.......................", "kglk..........kkk.........",
@@ -2306,23 +2353,6 @@ function caveAlien(row, f) {
   if (caveArt[k]) return caveArt[k];
   const hex = ROW_COLORS[row], rgb = [1, 3, 5].map(i => parseInt(hex.substr(i, 2), 16) / 255), L = m => css(rgb.map(v => Math.min(1, v * m)));
   return caveArt[k] = pixelRows(CAVE_SHAPES[row === 0 ? 3 : row % 3], { a: L(0.55), b: L(1), c: L(1.25), k: "#6ed7ff", f: f ? "#ffd34d" : "#ff7a2f", o: "#1a1030" });
-}
-// The splash picture for the caves: a rock face with a glowing cave mouth.
-let cavePicCv = null;
-function cavePicture() {
-  if (cavePicCv) return cavePicCv;
-  const W2 = 76, H2 = 52, c = document.createElement("canvas"); c.width = W2; c.height = H2;
-  const g = c.getContext("2d"), P = (x, y, col) => { g.fillStyle = col; g.fillRect(x, y, 1, 1); };
-  for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
-    const ridge = 14 + Math.abs(Math.sin(x * 0.09)) * 8 + Math.abs(Math.sin(x * 0.31)) * 3, mouth = ((x - 38) / 17) ** 2 + ((y - 38) / 12) ** 2;
-    if (y < ridge) continue;
-    if (mouth < 1 && y < 50) { const gl = 1 - mouth; P(x, y, css([0.05 + gl * 0.25, 0.08 + gl * 0.55, 0.06 + gl * 0.2])); continue; }
-    const edge = y - ridge < 2 || (mouth < 1.25);
-    const n = (Math.sin(x * 1.3 + y * 0.7) + Math.sin(x * 0.4 - y * 1.1)) * 0.5;
-    P(x, y, edge ? "#a8dcff" : n > 0.6 ? "#17307a" : "#1f3f94");
-  }
-  for (let x = 0; x < W2; x++) P(x, H2 - 1, "#2e8b3e");
-  return cavePicCv = c;
 }
 let earthShipCv = null;
 const earthShip = () => earthShipCv || (earthShipCv = pixelArt([
@@ -2547,7 +2577,7 @@ class Space extends Game {
       }
     }
     this.shotCD -= dt;
-    if (this.powers.rapid ? Input.held.a && this.shotCD <= 0 : Input.just.a && !this.shots.length) { this.fire(); this.shotCD = 0.16; }
+    if (this.powers.rapid ? Input.held.a && this.shotCD <= 0 : Input.just.a && this.shots.length < (c.design ? 2 : 1)) { this.fire(); this.shotCD = 0.16; }
     if (!this.earth) { this.marchStep(dt); this.alienFire(dt); this.updateUfo(dt); }
     this.updatePower(dt);
   }
@@ -2573,6 +2603,7 @@ class Space extends Game {
       const bolt = v => ({ x: this.cx + 13, y: this.shipY, vx: SHOT_SPEED * sp, v, tip: 0 });
       this.shots.push(bolt(0));
       if (this.powers.triple) this.shots.push(bolt(-34 * sp), bolt(34 * sp));
+      if (this.c.design && !this.bomb) this.bomb = { x: this.cx - 2, y: this.shipY + 6, vx: 34, vy: 14 };   // and a bomb drops at the same time
     } else {
       const x = this.cannonX, y = this.cy - 16, bolt = vx => ({ x, y, vx, v: -SHOT_SPEED * sp, tip: -5 });
       this.shots.push(bolt(0));
@@ -2606,6 +2637,7 @@ class Space extends Game {
     this.shots = this.shots.filter(s => {
       s.x += s.vx * dt; s.y += s.v * dt;
       const off = s.y < this.topY || s.y > 276 || s.x < LEFT || s.x > RIGHT;
+      if (this.cave && this.c.design && this.shotHitsCave(s)) return false;
       if (this.cave && this.inRock(s.x, s.y)) { this.boom(s.x, s.y, "blue"); return false; }
       if (off || this.hitShield(s)) { if (!(off && this.earth)) this.boom(s.x, s.y, "blue"); return false; }
       return !this.playerShotHits(s);
@@ -2615,7 +2647,7 @@ class Space extends Game {
     this.fires = this.fires.filter(f => {
       f.y += f.v * dt; f.x += (f.vx || 0) * dt;
       if (f.y < -20 || f.x < LEFT - 6 || f.x > RIGHT + 6) return false;
-      if (this.cave && this.inRock(f.x, f.y)) return false;
+      if (this.cave && (this.inRock(f.x, f.y) || (this.c.design && this.inWall(f.x, f.y)))) return false;
       if (f.y > this.floorY) { if (!this.earth) this.boom(f.x, f.y - 4, "red"); return false; }
       if (this.hitShield(f)) { this.boom(f.x, f.y, "red"); return false; }
       if (this.state === "play" && this.cannonOn && overlap(this.shotRect(f), cannon)) { this.playerHit(); return false; }
@@ -2659,6 +2691,10 @@ class Space extends Game {
   }
   updatePower(dt) {
     const c = this.c;
+    if (c.design) {
+      if (this.pow) { this.pow.x -= 58 * dt; if (this.pow.x < LEFT - 12) this.missedPower(); }
+      return;
+    }
     if (!c.powerups) return;
     this.powT -= dt;
     const p = this.pow;
@@ -2704,7 +2740,8 @@ class Space extends Game {
     const boom = a.earth ? "boomBaboom" : a.row % 2 ? "boomArcade" : "boomChip";
     Sound.play(boom, false, 1, "enemyboom" + (this.boomVoice = ((this.boomVoice || 0) + 1) % 3));
     this.bursts.push({ x: r.x + r.w / 2, y: r.y + r.h / 2, c: this.rowColor(a.row), t: 0 });
-    if (!this.alive && !this.boss) this.win();
+    if (this.c.design) this.caveKill();
+    else if (!this.alive && !this.boss) this.win();
   }
   playerHit() {
     if (this.t < this.safeUntil) return;
@@ -2731,7 +2768,10 @@ class Space extends Game {
       this.cannonX = 240; this.cannonOn = true; this.state = "play";
       if (this.earth) this.safeUntil = this.t + 1;
       this.fwd = 0;
-      if (this.cave) { this.shipY = this.gapMid(CAVE_SHIP_X); this.safeUntil = this.t + 1.6; }
+      if (this.cave) {
+        this.shipY = this.gapMid(CAVE_SHIP_X); this.safeUntil = this.t + 1.6; this.rockets = []; this.bomb = null;
+        if (this.c.design) for (const w of this.walls) if (Math.abs(this.sx(w.wx) - CAVE_SHIP_X) < 70) w.blocks.forEach(b => { b.on = false; });
+      }
     };
     this.after(1.4, respawn);
   }
@@ -2758,7 +2798,7 @@ class Space extends Game {
   saveShields() { return this.shields.map(s => Array.from(s.px).join("")); }
   loadShields(list) { this.shields.forEach((s, n) => [...list[n]].forEach((v, i) => { if (v === "0" && s.px[i]) s.clear(i % SW, Math.floor(i / SW)); })); }
   ready() {
-    if (this.c.splash && this.splashed !== this.level) { this.splashed = this.level; this.state = "splash"; this.after(2.4, () => super.ready()); }
+    if (this.c.splash && this.splashed !== this.level) { this.splashed = this.level; this.state = "splash"; this.splashT0 = this.t; this.after(this.cave ? 4.6 : 2.4, () => super.ready()); }
     else super.ready();
   }
   saveData() {
@@ -2774,7 +2814,7 @@ class Space extends Game {
   }
   shootSound() { this.snd("shoot"); }
   get winText() { return this.cave ? "Cave cleared!" : "Sector cleared!"; }
-  boom(x, y, kind) { this.booms.push({ x, y, kind, t: 0, dur: kind === "big" ? 0.56 : 0.2 }); }
+  boom(x, y, kind) { this.booms.push({ x, y, kind, t: 0, dur: kind === "big" ? 0.56 : kind === "bomb" ? 0.45 : 0.2 }); }
   win() {
     this.state = "win"; this.removeUfo();
     Sound.play("victory");
@@ -2789,6 +2829,7 @@ class Space extends Game {
   }
   drawBoom(b) {
     if (b.kind === "big") sprite(Img.explosion, Math.min(8, Math.floor(b.t * 16)) * 48, 0, 48, 48, b.x - 24, b.y - 24);
+    else if (b.kind === "bomb") ctx.drawImage(Img.explosion, Math.min(8, Math.floor(b.t * 20)) * 48, 0, 48, 48, Math.round(b.x) - 16, Math.round(b.y) - 16, 32, 32);
     else sprite(Img.hitring, Math.min(3, Math.floor(b.t * 20)) * 16, b.kind === "blue" ? 16 : 0, 16, 16, b.x - 8, b.y - 8);
   }
   drawHull(x, by) {
@@ -3083,13 +3124,30 @@ class Space extends Game {
   /* ---- The caves (levels 8-10), seen from the side ---- */
   buildCave() {
     const c = this.c;
-    this.caveX = 0; this.caveTop = []; this.caveBot = []; this.caveSeg = null;
+    this.caveTop = []; this.caveBot = []; this.caveSeg = null;
+    this.walls = []; this.launchers = []; this.rockets = []; this.bomb = null; this.kills = 0; this.powDue = false;
+    if (c.design) {
+      // Coming straight from level 10 the cave just carries on (no jump back); otherwise start at this half.
+      if (!(this.caveX >= c.from && this.caveX < c.from + 400)) this.caveX = c.from;
+      const D = caveDesign(); this.caveTop = D.top; this.caveBot = D.bot;
+      for (const wx of CAVE_WALLS) if (wx > this.caveX + 150 && wx < c.to) {
+        const i0 = Math.floor(wx / 4), i1 = i0 + 4, t = Math.min(...D.top.slice(i0, i1)), b = Math.max(...D.bot.slice(i0, i1));
+        const blocks = [];
+        for (let y = t - 6; y < b + 6; y += 6) for (let col = 0; col < 2; col++) blocks.push({ col, y, on: true });
+        this.walls.push({ wx, blocks });
+      }
+      for (const lx of CAVE_LAUNCHERS) if (lx > this.caveX + 150 && lx < c.to) {
+        const i = Math.floor(lx / 4);
+        this.launchers.push({ wx: lx, y: Math.min(D.bot[i - 1], D.bot[i], D.bot[i + 1]), on: true, cool: 1 + (lx % 7) * 0.3, aim: -Math.PI / 2 });
+      }
+    } else this.caveX = 0;
     this.waves = []; this.aliens = []; this.shields = [];
     this.shipY = 135;
+    const gapT = c.design ? Math.max(4.2, ((c.to - this.caveX) / 58 - 8) / c.waves) : 4.2;
     for (let w = 0; w < c.waves; w++) {
       const type = pick(["train", "column", "zigzag"]), base = rnd(0.3, 0.7);
       for (let k = 0; k < c.perWave; k++) {
-        const a = this.caveShip(w % 5, 0, 0, 1.5 + w * 4.2 + (type === "column" ? 0 : k * 0.32));
+        const a = this.caveShip(w % 5, 0, 0, 1.5 + w * gapT + (type === "column" ? 0 : k * 0.32));
         a.type = type; a.k = k; a.base = base; a.n = c.perWave; a.phase = k * 0.7;
         this.aliens.push(a);
       }
@@ -3101,6 +3159,7 @@ class Space extends Game {
   caveShip(row, x, y, wait) { return { earth: true, cave: true, row, x, y, baseY: y, wait, mode: "fly", type: "train", phase: 0, vx: -62, t: 0, wave: { n: 1 } }; }
   // Rock heights, generated column by column (4 px wide) as the cave scrolls.
   caveCol(i) {
+    if (this.c.design) return Math.min(i, this.caveTop.length - 1);
     while (this.caveTop.length <= i) {
       const n = this.caveTop.length, g = this.c.gap;
       if (!this.caveSeg || n >= this.caveSeg.end) {
@@ -3136,19 +3195,108 @@ class Space extends Game {
       a.y = clamp(y, this.caveTop[i] + 8, this.caveBot[i] - 8);
       if (a.x < LEFT - 14) {                              // missed: it is left behind
         this.aliens[this.aliens.indexOf(a)] = null; this.alive--;
-        if (!this.alive && !this.boss && this.state === "play") this.win();
+        if (!this.alive && !this.boss && !c.design && this.state === "play") this.win();
         continue;
       }
       if (this.state === "play" && this.cannonOn && this.t > this.safeUntil && overlap(this.aRect(a), player)) this.playerHit();
     }
     this.keepApart();
+    if (c.design) this.updateCaveThings(dt);
     if (this.state !== "play") return;
+    if (c.design && this.caveX >= c.to) { this.win(); return; }      // out at the far end of this half
     this.fireT -= dt;
     if (this.fireT <= 0) {
       this.fireT = FIRE_INTERVAL / c.fire * rnd(0.6, 1.4);
       const able = this.aliens.filter(a => a && a.wait <= 0 && a.x < RIGHT - 10 && a.x > this.cx + 50);
       if (able.length) { const a = pick(able); this.aimed(a.x - 8, a.y, 115); this.fires[this.fires.length - 1].boss = false; Sound.play("efire"); }
     }
+  }
+  // Screen position of something fixed in the cave.
+  sx(wx) { return LEFT + wx - this.caveX; }
+  wallRects(w) { const x = this.sx(w.wx); return w.blocks.filter(b => b.on).map(b => ({ b, x: x + b.col * 8, y: b.y, w: 8, h: 6 })); }
+  launcherRect(l) { return { x: this.sx(l.wx) - 8, y: l.y - 9, w: 16, h: 10 }; }
+  inWall(x, y) { return this.walls.some(w => this.wallRects(w).some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)); }
+  updateCaveThings(dt) {
+    const c = this.c, pr = this.playerRect(), px = pr.x + pr.w / 2, py = pr.y + pr.h / 2;
+    this.walls = this.walls.filter(w => this.sx(w.wx) > LEFT - 30);
+    this.launchers = this.launchers.filter(l => this.sx(l.wx) > LEFT - 20);
+    const live = this.state === "play" && this.cannonOn && this.t > this.safeUntil;
+    // Rocket launchers: the tube turns to the ship, and a rocket goes up every few seconds.
+    for (const l of this.launchers) {
+      if (!l.on) continue;
+      const x = this.sx(l.wx);
+      l.aim += clamp(Math.atan2(py - (l.y - 9), px - x) - l.aim, -3 * dt, 3 * dt);
+      if (x > RIGHT - 4 || x < LEFT + 8 || this.state !== "play") continue;
+      if ((l.cool -= dt) > 0) continue;
+      l.cool = rnd(2.4, 3.8) / c.rockets;
+      const v = 88 * Math.sqrt(c.rockets), a = Math.min(l.aim, -0.35);
+      this.rockets.push({ x: x + Math.cos(a) * 8, y: l.y - 9 + Math.sin(a) * 8, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0 });
+      Sound.play("bossfire");
+    }
+    // Rockets steer towards the ship for a short while, then fly straight on.
+    this.rockets = this.rockets.filter(r => {
+      r.t += dt;
+      if (r.t < 1.1) {
+        const want = Math.atan2(py - r.y, px - r.x), have = Math.atan2(r.vy, r.vx), v = Math.hypot(r.vx, r.vy);
+        let d = want - have; d = mod(d + Math.PI, TAU) - Math.PI;
+        const a = have + clamp(d, -1.6 * dt, 1.6 * dt); r.vx = Math.cos(a) * v; r.vy = Math.sin(a) * v;
+      }
+      r.x += r.vx * dt; r.y += r.vy * dt;
+      if (r.x < LEFT - 8 || r.x > RIGHT + 8 || r.y < -8 || r.y > 278) return false;
+      if (this.inRock(r.x, r.y) || this.inWall(r.x, r.y)) { this.boom(r.x, r.y, "red"); return false; }
+      if (live && overlap({ x: r.x - 3, y: r.y - 3, w: 6, h: 6 }, pr)) { this.playerHit(); return false; }
+      return true;
+    });
+    // The bomb falls in an arc and blows up whatever it lands on.
+    const b = this.bomb;
+    if (b) {
+      b.vy += 240 * dt; b.x += b.vx * dt; b.y += b.vy * dt;
+      const hitThing = this.launchers.some(l => l.on && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, this.launcherRect(l)))
+        || this.aliens.some(a => a && a.wait <= 0 && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, this.aRect(a)));
+      if (hitThing || this.inRock(b.x, b.y) || this.inWall(b.x, b.y) || b.y > 272 || b.x > RIGHT + 6) this.explodeBomb(b.x, b.y);
+    }
+    // Flying into a wall or a launcher is as bad as flying into the rock.
+    if (live && (this.walls.some(w => this.wallRects(w).some(r => overlap(r, pr))) || this.launchers.some(l => l.on && overlap(this.launcherRect(l), pr)))) { delete this.powers.shield; this.playerHit(); }
+  }
+  explodeBomb(x, y) {
+    this.bomb = null;
+    this.boom(x, y, "bomb"); Sound.play("eboom");
+    const R = 15, near = r => Math.hypot(clamp(x, r.x, r.x + r.w) - x, clamp(y, r.y, r.y + r.h) - y) < R;
+    for (const w of this.walls) for (const r of this.wallRects(w)) if (near(r)) { r.b.on = false; this.addScore(10); }
+    for (const l of this.launchers) if (l.on && near(this.launcherRect(l))) this.killLauncher(l);
+    this.aliens.forEach((a, i) => { if (a && a.wait <= 0 && near(this.aRect(a))) this.killAlien(i); });
+    this.rockets = this.rockets.filter(r => { if (Math.hypot(r.x - x, r.y - y) < R) { this.boom(r.x, r.y, "red"); return false; } return true; });
+    if (this.pow && Math.hypot(this.pow.x - x, this.pow.y - y) < R + 6) { this.collect(this.pow); this.pow = null; }
+  }
+  killLauncher(l) {
+    l.on = false;
+    const r = this.launcherRect(l);
+    this.addScore(50); this.float("50", r.x + 8, r.y - 4, 0.7);
+    this.boom(r.x + 8, r.y + 4, "bomb");
+    Sound.play("boomBaboom", false, 1, "enemyboom" + (this.boomVoice = ((this.boomVoice || 0) + 1) % 3));
+    this.caveKill();
+  }
+  // Every sixth kill a power-up cylinder appears, standing on the cave floor ahead.
+  caveKill() {
+    this.kills++;
+    if (this.kills % 6 === 0) this.powDue = true;
+    if (this.powDue && !this.pow) {
+      const pool = Object.keys(POWERS).filter(k => k === "life" ? this.lives < 5 : !this.powers[k]);
+      this.powDue = false;
+      if (pool.length) this.pow = { type: pick(pool), d: 0, x: RIGHT + 10, y: this.caveBot[this.colAt(RIGHT + 10)] - 8, stand: true };
+    }
+  }
+  // A player's shot against the walls, launchers and rockets.
+  shotHitsCave(s) {
+    let best = null;
+    for (const w of this.walls) for (const r of this.wallRects(w)) if (s.x >= r.x - 3 && s.x < r.x + r.w + 3 && s.y >= r.y && s.y < r.y + r.h && (!best || r.x < best.x)) best = r;
+    if (best) { best.b.on = false; this.addScore(10); this.boom(best.x + 4, best.y + 3, "blue"); Sound.play("eboom"); return true; }
+    for (const l of this.launchers) if (l.on && overlap(this.shotRect(s), this.launcherRect(l))) { this.killLauncher(l); return true; }
+    for (let i = 0; i < this.rockets.length; i++) {
+      const r = this.rockets[i];
+      if (Math.abs(r.x - s.x) < 7 && Math.abs(r.y - s.y) < 5) { this.rockets.splice(i, 1); this.boom(r.x, r.y, "red"); this.addScore(20); return true; }
+    }
+    return false;
   }
   enterShip(a) {
     const col = a.type === "column", i = this.colAt(RIGHT - 2), top = this.caveTop[i], bot = this.caveBot[i];
@@ -3157,21 +3305,67 @@ class Space extends Game {
     a.y = a.baseY; a.t = 0;
   }
   drawCave() {
-    rect(LEFT, 0, 240, H, "#000");
-    for (let i = 0; i < 46; i++) {                          // red sparks drifting past
+    this.drawRedCave();
+    if (this.c.design) this.drawCaveThings();
+  }
+  drawRedCave() {
+    rect(LEFT, 0, 240, H, "#0b0205");
+    // far away: a dim second layer of rock drifting by slower
+    ctx.beginPath(); ctx.moveTo(LEFT - 2, -2);
+    for (let x = LEFT - 2; x <= RIGHT + 4; x += 6) { const u = (x - LEFT + this.caveX * 0.35) / 6; ctx.lineTo(x, 26 + Math.sin(u * 0.21) * 14 + Math.sin(u * 0.53) * 6); }
+    ctx.lineTo(RIGHT + 4, -2); ctx.closePath(); ctx.fillStyle = "#24070d"; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(LEFT - 2, 272);
+    for (let x = LEFT - 2; x <= RIGHT + 4; x += 6) { const u = (x - LEFT + this.caveX * 0.35) / 6; ctx.lineTo(x, 244 + Math.sin(u * 0.17 + 2) * 14 + Math.sin(u * 0.61) * 5); }
+    ctx.lineTo(RIGHT + 4, 272); ctx.closePath(); ctx.fill();
+    for (let i = 0; i < 30; i++) {                          // embers drifting past
       const sp = 30 + (i * 37) % 70, x = LEFT + mod(i * 97.3 - this.t * sp - this.caveX * 0.4, 250) - 5;
       const y = mod(i * 53.7 + Math.sin(this.t * 1.3 + i) * 8 - this.t * (6 + i % 9), 270);
-      const a = 0.45 + 0.55 * Math.abs(Math.sin(this.t * (3 + i % 5) + i));
-      rect(x, y, i % 4 ? 1 : 2, 1, i % 3 ? `rgba(255,60,40,${a})` : `rgba(255,160,60,${a})`);
+      const a = 0.35 + 0.5 * Math.abs(Math.sin(this.t * (3 + i % 5) + i));
+      rect(x, y, i % 4 ? 1 : 2, 1, i % 3 ? `rgba(255,70,60,${a})` : `rgba(255,170,120,${a})`);
     }
-    const start = Math.floor(this.caveX / 4), shift = this.caveX - start * 4;
-    for (let k = 0; k <= 61; k++) {
-      const i = this.caveCol(start + k), x = Math.round(LEFT + k * 4 - shift), t = this.caveTop[i], b = this.caveBot[i];
-      const hsh = ((i * 2654435761) >>> 0) % 7;
-      rect(x, 0, 4, t, "#1f3f94"); rect(x, b, 4, 270 - b, "#1f3f94");
-      if (hsh < 2) { rect(x + 1, Math.max(0, t - 14 - hsh * 9), 2, 2, "#17307a"); rect(x + 1, b + 12 + hsh * 11, 2, 2, "#17307a"); }
-      rect(x, t - 5, 4, 3, "#3f78dd"); rect(x, t - 2, 4, 2, "#a8dcff");
-      rect(x, b, 4, 2, "#a8dcff"); rect(x, b + 2, 4, 3, "#3f78dd");
+    const start = Math.floor(this.caveX / 4), shift = this.caveX - start * 4, T = [], B = [];
+    for (let k = -1; k <= 62; k++) { const i = this.caveCol(Math.max(0, start + k)); T.push([LEFT + k * 4 - shift, this.caveTop[i], i]); B.push([LEFT + k * 4 - shift, this.caveBot[i], i]); }
+    const shape = (pts, edge) => { ctx.beginPath(); ctx.moveTo(pts[0][0], edge); pts.forEach(p => ctx.lineTo(p[0], p[1])); ctx.lineTo(pts[pts.length - 1][0], edge); ctx.closePath(); };
+    const path = (pts, dy) => { ctx.beginPath(); pts.forEach((p, n) => n ? ctx.lineTo(p[0], p[1] + dy) : ctx.moveTo(p[0], p[1] + dy)); };
+    ctx.lineJoin = "round";
+    for (const [pts, edge, d] of [[T, -4, -1], [B, 274, 1]]) {
+      shape(pts, edge); ctx.fillStyle = "#6a1020"; ctx.fill();
+      // speckles in the rock
+      for (const [x, y, i] of pts) { const h = ((i * 2654435761) >>> 0) % 9; if (h < 3) rect(x + 1, y + d * (12 + h * 9), 2, 2, "#4d0a17"); if (h === 5) rect(x, y + d * (26 + h * 3), 3, 2, "#80182a"); }
+      path(pts, d * 4); ctx.strokeStyle = "#9c2236"; ctx.lineWidth = 5; ctx.stroke();      // a lighter band just inside the edge
+      path(pts, d * 1); ctx.strokeStyle = "#ff8f96"; ctx.lineWidth = 2; ctx.stroke();      // the light red edge
+      path(pts, 0); ctx.strokeStyle = "rgba(255,210,210,.55)"; ctx.lineWidth = 0.8; ctx.stroke();
+    }
+  }
+  drawCaveThings() {
+    // Brick walls in the style of the old C64 games: grey blocks with a white top edge and a dark lower edge.
+    for (const w of this.walls) for (const r of this.wallRects(w)) {
+      const x = Math.round(r.x), y = Math.round(r.y);
+      rect(x, y, 8, 6, "#9a9a9a"); rect(x, y, 8, 1, "#ffffff"); rect(x, y, 1, 6, "#d6d6d6");
+      rect(x, y + 5, 8, 1, "#3d3d3d"); rect(x + 7, y, 1, 6, "#5c5c5c"); rect(x + 2, y + 2, 3, 2, "#b8b8b8");
+    }
+    // Rocket launchers: a bunker with a turning tube and a light that blinks just before it fires.
+    for (const l of this.launchers) {
+      const x = Math.round(this.sx(l.wx)), y = Math.round(l.y);
+      if (x < LEFT - 12 || x > RIGHT + 12) continue;
+      if (!l.on) { rect(x - 8, y - 3, 16, 3, "#3a2a2e"); rect(x - 5, y - 5, 4, 2, "#2a1c20"); rect(x + 2, y - 4, 3, 1, "#2a1c20"); continue; }
+      ctx.save(); ctx.translate(x, y - 9); ctx.rotate(l.aim);
+      rect(0, -2, 10, 4, "#c9c3d6"); rect(0, -2, 10, 1, "#ffffff"); rect(8, -2, 2, 4, "#5a5468"); ctx.restore();
+      poly([[x - 9, y], [x - 6, y - 9], [x + 6, y - 9], [x + 9, y]], "#6f6a7d");
+      line([[x - 6, y - 9], [x + 6, y - 9]], "#d8d3e4"); line([[x - 9, y], [x - 6, y - 9]], "#a9a3b8");
+      rect(x - 2, y - 6, 4, 3, l.cool < 0.4 && Math.floor(this.t * 12) % 2 ? "#ffe36a" : "#ff3b4e");
+    }
+    for (const r of this.rockets) {
+      const a = Math.atan2(r.vy, r.vx), x = r.x, y = r.y;
+      glow(x - Math.cos(a) * 6, y - Math.sin(a) * 6, 6, 6, "rgba(255,150,60,A)", 0.7);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+      rect(-9 - (Math.floor(this.t * 30) % 3), -1, 4, 2, "#ffd34d"); rect(-5, -1.5, 7, 3, "#f0eef6"); rect(2, -1, 2, 2, "#ff3b4e"); rect(-5, -2.5, 2, 5, "#9a98a6");
+      ctx.restore();
+    }
+    if (this.bomb) {
+      const b = this.bomb, x = Math.round(b.x), y = Math.round(b.y);
+      ctx.beginPath(); ctx.ellipse(x, y, 3, 2.2, Math.atan2(b.vy, b.vx), 0, TAU); ctx.fillStyle = "#1a1030"; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x, y, 2.2, 1.5, Math.atan2(b.vy, b.vx), 0, TAU); ctx.fillStyle = "#c9e8ff"; ctx.fill();
     }
   }
   drawCaveShip() {
@@ -3307,19 +3501,53 @@ class Space extends Game {
     a.x = clamp(a.x + a.vx * dt, LEFT + 9, RIGHT - 9);
     a.y += a.vy * dt;
   }
+  // Before the caves: a red crater with no bottom on a red plain. The grey mothership from level 12 sinks into it,
+  // a few aliens close behind, over and over.
+  drawCraterSplash() {
+    const cx = 240, cy = 168, rx = 92, ry = 30, t = this.t;
+    // the plain, with dim hills far off
+    const sky = ctx.createLinearGradient(0, 70, 0, 128); sky.addColorStop(0, "rgba(120,20,40,0)"); sky.addColorStop(1, "rgba(160,30,50,.35)");
+    rect(LEFT, 70, 240, 58, sky);
+    ctx.beginPath(); ctx.moveTo(LEFT, 128);
+    for (let x = LEFT; x <= RIGHT; x += 4) ctx.lineTo(x, 118 - Math.abs(Math.sin(x * 0.045)) * 9 - Math.abs(Math.sin(x * 0.13 + 1)) * 4);
+    ctx.lineTo(RIGHT, 128); ctx.closePath(); ctx.fillStyle = "#3a0a14"; ctx.fill();
+    const ground = () => { const g = ctx.createLinearGradient(0, 124, 0, 270); g.addColorStop(0, "#5a0e1b"); g.addColorStop(1, "#7a1426"); return g; };
+    rect(LEFT, 124, 240, 146, ground());
+    line([[LEFT, 124.5], [RIGHT, 124.5]], "#ff8f96");
+    const specks = () => { for (let i = 0; i < 46; i++) { const x = LEFT + (i * 97) % 240, y = 130 + (i * 53) % 136; if (((x - cx) / (rx + 6)) ** 2 + ((y - cy) / (ry + 4)) ** 2 > 1) rect(x, y, 2 + (i % 3 === 0), 1, i % 2 ? "#4a0a16" : "#93202f"); } };
+    specks();
+    // the hole: a lit rim, inner walls dropping away into black
+    const hole = () => { ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU); };
+    hole(); ctx.fillStyle = "#000"; ctx.fill();
+    ctx.save(); hole(); ctx.clip();
+    const wall = ctx.createLinearGradient(0, cy - ry, 0, cy + ry * 0.6); wall.addColorStop(0, "#9c2236"); wall.addColorStop(0.35, "#4a0a16"); wall.addColorStop(1, "#000");
+    ctx.beginPath(); ctx.ellipse(cx, cy - ry * 0.15, rx * 0.98, ry * 0.95, 0, Math.PI, TAU); ctx.lineTo(cx + rx, cy + ry); ctx.lineTo(cx - rx, cy + ry); ctx.closePath(); ctx.fillStyle = wall; ctx.fill();
+    for (let i = 0; i < 9; i++) { const x = cx - rx + 14 + i * 19; line([[x, cy - ry + 4 + (i % 3) * 2], [x + (i % 2 ? 4 : -4), cy - 2]], "rgba(255,143,150,.25)"); }
+    for (let i = 0; i < 4; i++) { const k = mod(t * 0.5 + i / 4, 1); ctx.beginPath(); ctx.ellipse(cx, cy + 4 + k * 10, rx * (0.75 - k * 0.6), ry * (0.6 - k * 0.5), 0, 0, TAU); ctx.strokeStyle = `rgba(255,70,90,${0.18 * (1 - k)})`; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.restore();
+    // the ship and its escort sink into the hole
+    const fly = (k, draw) => {
+      const e = k * k * (3 - 2 * k), x = 340 - 100 * e + Math.sin(k * 5) * 6, y = 34 + (cy + 6 - 34) * e, sc = 0.55 - 0.38 * e;
+      ctx.save(); ctx.globalAlpha = k > 0.8 ? Math.max(0, 1 - (k - 0.8) / 0.2) : 1; draw(x, y, sc); ctx.restore();
+    };
+    const cyc = (t - (this.splashT0 || 0)) / 3.2;          // one pass: the ship reaches the hole after 3.2 s
+    for (let i = 4; i >= 1; i--) {
+      const k = cyc - i * 0.07;
+      if (k > 0 && k < 1) fly(k, (x, y, sc) => { const im = caveAlien((i + 1) % 5, Math.floor(t * 8) % 2), w = im.width * sc * 1.8, h = im.height * sc * 1.8; ctx.drawImage(im, x + 30 * sc - w / 2, y + (i % 2 ? -10 : 10) * sc - h / 2, w, h); });
+    }
+    if (cyc < 1) fly(cyc, (x, y, sc) => { const im = bossHull(); ctx.drawImage(im, x - im.width * sc / 2, y - im.height * sc / 2, im.width * sc, im.height * sc); });
+    // the near side of the plain covers whatever has sunk below the rim
+    ctx.save(); ctx.beginPath(); ctx.rect(LEFT, cy, 240, H - cy); ctx.moveTo(cx + rx, cy); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI); ctx.closePath(); ctx.clip("evenodd");
+    rect(LEFT, 124, 240, 146, ground()); specks(); ctx.restore();
+    hole(); ctx.strokeStyle = "#ff8f96"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx, cy + 1.5, rx + 1, ry + 1, 0, 0.1, Math.PI - 0.1); ctx.strokeStyle = "rgba(255,210,210,.6)"; ctx.lineWidth = 1; ctx.stroke();
+    text("They are fleeing", 240, 216, { size: 22, w: 800, color: "#fff27f", outline: "#14082a" });
+    text("into the caves!", 240, 240, { size: 22, w: 800, color: "#fff27f", outline: "#14082a" });
+  }
   drawSplash() {
     rect(LEFT, 0, 240, H, "#02010a");
     for (const s of this.stars) { const v = clamp(0.4 + 0.4 * Math.sin(s.p), 0, 1); rect(Math.floor(s.x), Math.floor(s.y), 1, 1, css([v, v, v])); }
-    if (this.cave && this.state === "splash") {
-      const im = cavePicture(), bob = Math.round(Math.sin(this.t * 2) * 2);
-      ctx.drawImage(im, 240 - im.width * 1.5, 104 - im.height * 1.5 + bob, im.width * 3, im.height * 3);
-      for (let i = 0; i < 6; i++) {             // ships streaming into the cave
-        const k = mod(this.t * 0.35 + i / 6, 1), x = 300 + 80 * (1 - k) - 70 * k, y = 40 + 70 * k + Math.sin(i * 2 + this.t * 3) * 6;
-        if (k < 0.92) ctx.drawImage(caveAlien(i % 5, Math.floor(this.t * 8) % 2), Math.round(x) - 8, Math.round(y) - 5);
-      }
-      text("Our last defence!", 240, 215, { size: 24, w: 800, color: "#fff27f", outline: "#14082a" });
-      return;
-    }
+    if (this.cave && this.state === "splash") { this.drawCraterSplash(); return; }
     const bob = Math.round(Math.sin(this.t * 2) * 3), e = earthPicture();
     roundGlow(240, 104 + bob, 77);
     ctx.save(); ctx.beginPath(); ctx.arc(240, 104 + bob, 77, 0, TAU); ctx.clip();
@@ -3390,9 +3618,13 @@ class Space extends Game {
         [[0, 74, 30], [1, 90, 20], [3, 106, 10]].forEach(([row, y, p]) => { sprite(Img.aliens, 0, row * 8, 11, 8, 386, y - 4); text("= " + p, 404, y, { align: "left" }); });
         sprite(Img.ufo, 0, 0, 16, 8, 384, 118); text("= ???", 404, 122, { align: "left" });
       }
-      text("Left", 421, 165, { color: "#b3b3d9" }); text(String(this.alive), 421, 180, { size: 16 });
+      if (this.c.design) {             // in the long cave: how far through this half the ship has come
+        const k = clamp((this.caveX - this.c.from) / (this.c.to - this.c.from), 0, 1);
+        text("Cave", 421, 165, { color: "#b3b3d9" });
+        rect(391, 176, 60, 7, "#2a1846"); rect(391, 176, Math.round(60 * k), 7, "#ff8f96"); rect(391, 176, 60, 1, "rgba(255,255,255,.25)");
+      } else { text("Left", 421, 165, { color: "#b3b3d9" }); text(String(this.alive), 421, 180, { size: 16 }); }
       text(this.earth || this.cave ? "Arrows  move" : "\u2190 \u2192  move", 421, 227, { size: 11, color: "#8c8cb3" });
-      text("Space  shoot", 421, 240, { size: 11, color: "#8c8cb3" });
+      text(this.c.design ? "Space  shoot+bomb" : "Space  shoot", 421, 240, { size: 11, color: "#8c8cb3" });
     } else {
       text("Left: " + this.alive, 421, 74, { color: "#b3b3d9" });
       if (this.state !== "name") Pads.drawSpace();
@@ -3783,13 +4015,14 @@ class Moonbase extends Space {
       if (!this.musicOver && !(Sound.live.music && Sound.live.music.sid) && Sound.ac && Sound.ac.state === "running" && this.state !== "lose") Sound.playSid(deltaSid(), 12, "music", 4);
       if (this.state === "lose" && Sound.live.music) Sound.stop("music");   // (the boss tune replaces any warp tune still playing from level 12)
     } else if (music && Sound.ac && Sound.ac.state === "running") {
-      const order = ["gyrtheme", "gyrtheme", "gyrbridge"], now = Sound.ac.currentTime;
+      // The intro once, then the two main parts back to back, round and round.
+      const order = ["gyrtheme", "gyrbridge"], now = Sound.ac.currentTime;
       const start = k => { G.music = k; G.segStart = now; Sound.play(k === "intro" ? "gyrintro" : order[k], false, 1, "music"); };
       if (G.music === undefined) start("intro");
-      else if (!Sound.live.music) start(G.music === "intro" ? 0 : G.music);                 // back from a pause: that part again
       else {
-        const buf = Sound.buf[G.music === "intro" ? "gyrintro" : order[G.music]];
-        if (buf && now - G.segStart >= buf.duration - 0.01) start(G.music === "intro" ? 0 : (G.music + 1) % order.length);
+        const buf = Sound.buf[G.music === "intro" ? "gyrintro" : order[G.music]], next = G.music === "intro" ? 0 : (G.music + 1) % order.length;
+        if (buf && now - G.segStart >= buf.duration - 0.03) start(next);                    // a part is over: on to the next
+        else if (!Sound.live.music) start(G.music === "intro" ? 0 : G.music);                // back from a pause: that part again
       }
     } else if (!music && this.state !== "warp" && this.state !== "win" && this.state !== "saved" && Sound.live.music) Sound.stop("music");
     this.updateFoes(dt);
