@@ -3205,13 +3205,18 @@ class Space extends Game {
       if (!a) continue;
       if (a.wait > 0) { a.wait -= dt; if (a.wait <= 0) this.enterShip(a); continue; }
       a.t += dt;
-      a.x += a.vx * dt;
+      // In the long cave they fly clearly faster than the rock scrolls by (58 px/s), so they never seem to hang
+      // behind a stalactite; the old caves keep their speed.
+      a.x += (c.design ? -100 : a.vx) * dt;
       let y = a.y;
       if (a.type === "train") y = a.baseY + Math.sin(a.t * 2.2 + a.phase) * 26;
       else if (a.type === "zigzag") y = a.baseY + (mod(a.t * 0.9 + a.phase * 0.2, 2) < 1 ? 1 : -1) * 0 + Math.asin(Math.sin(a.t * 2.4 + a.phase)) * 22;
       else y = a.baseY;
-      const i = this.colAt(clamp(a.x, LEFT, RIGHT + 30));
-      a.y = clamp(y, this.caveTop[i] + 8, this.caveBot[i] - 8);
+      // keep the whole ship (16 px wide) clear of the rock, stalactites and stalagmites included
+      const i0 = this.colAt(clamp(a.x - 8, LEFT, RIGHT + 30)), i1 = this.colAt(clamp(a.x + 8, LEFT, RIGHT + 30));
+      let top = -1e9, bot = 1e9;
+      for (let i = i0; i <= i1; i++) { top = Math.max(top, this.caveTop[i]); bot = Math.min(bot, this.caveBot[i]); }
+      a.y = bot - top > 16 ? clamp(y, top + 8, bot - 8) : (top + bot) / 2;
       if (a.x < LEFT - 14) {                              // missed: it is left behind
         this.aliens[this.aliens.indexOf(a)] = null; this.alive--;
         if (!this.alive && !this.boss && !c.design && this.state === "play") this.win();
@@ -3555,22 +3560,23 @@ class Space extends Game {
     for (let i = 0; i < 9; i++) { const x = cx - rx + 14 + i * 19; line([[x, cy - ry + 4 + (i % 3) * 2], [x + (i % 2 ? 4 : -4), cy - 2]], "rgba(255,143,150,.25)"); }
     for (let i = 0; i < 4; i++) { const k = mod(t * 0.5 + i / 4, 1); ctx.beginPath(); ctx.ellipse(cx, cy + 4 + k * 10, rx * (0.75 - k * 0.6), ry * (0.6 - k * 0.5), 0, 0, TAU); ctx.strokeStyle = `rgba(255,70,90,${0.18 * (1 - k)})`; ctx.lineWidth = 1; ctx.stroke(); }
     ctx.restore();
-    // the ship and its escort sink into the hole
+    // how the ship and its escort move: down into the hole, smaller and smaller
     const fly = (k, draw) => {
       const e = k * k * (3 - 2 * k), x = 340 - 100 * e + Math.sin(k * 5) * 6, y = 34 + (cy + 6 - 34) * e, sc = 0.55 - 0.38 * e;
       ctx.save(); ctx.globalAlpha = k > 0.8 ? Math.max(0, 1 - (k - 0.8) / 0.2) : 1; draw(x, y, sc); ctx.restore();
     };
+    // the near side of the plain covers whatever has sunk below the rim
+    ctx.save(); ctx.beginPath(); ctx.rect(LEFT, cy, 240, H - cy); ctx.moveTo(cx + rx, cy); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI); ctx.closePath(); ctx.clip("evenodd");
+    rect(LEFT, 124, 240, 146, ground()); specks(); ctx.restore();
+    hole(); ctx.strokeStyle = "#ff8f96"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx, cy + 1.5, rx + 1, ry + 1, 0, 0.1, Math.PI - 0.1); ctx.strokeStyle = "rgba(255,210,210,.6)"; ctx.lineWidth = 1; ctx.stroke();
+    // the ship and its escort in front of everything, fading as they reach the hole
     const cyc = (t - (this.splashT0 || 0)) / 3.2;          // one pass: the ship reaches the hole after 3.2 s
     for (let i = 4; i >= 1; i--) {
       const k = cyc - i * 0.07;
       if (k > 0 && k < 1) fly(k, (x, y, sc) => { const im = caveAlien((i + 1) % 5, Math.floor(t * 8) % 2), w = im.width * sc * 1.8, h = im.height * sc * 1.8; ctx.drawImage(im, x + 30 * sc - w / 2, y + (i % 2 ? -10 : 10) * sc - h / 2, w, h); });
     }
     if (cyc < 1) fly(cyc, (x, y, sc) => { const im = bossHull(); ctx.drawImage(im, x - im.width * sc / 2, y - im.height * sc / 2, im.width * sc, im.height * sc); });
-    // the near side of the plain covers whatever has sunk below the rim
-    ctx.save(); ctx.beginPath(); ctx.rect(LEFT, cy, 240, H - cy); ctx.moveTo(cx + rx, cy); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI); ctx.closePath(); ctx.clip("evenodd");
-    rect(LEFT, 124, 240, 146, ground()); specks(); ctx.restore();
-    hole(); ctx.strokeStyle = "#ff8f96"; ctx.lineWidth = 2; ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(cx, cy + 1.5, rx + 1, ry + 1, 0, 0.1, Math.PI - 0.1); ctx.strokeStyle = "rgba(255,210,210,.6)"; ctx.lineWidth = 1; ctx.stroke();
     text("They are fleeing", 240, 216, { size: 22, w: 800, color: "#fff27f", outline: "#14082a" });
     text("into the caves!", 240, 240, { size: 22, w: 800, color: "#fff27f", outline: "#14082a" });
   }
