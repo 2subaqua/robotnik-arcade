@@ -2218,6 +2218,87 @@ function addHeights(res, top, traps) {
   const map = toMap(), ch = heightCheck(map, res.start);
   return ch.reach === ch.total && !ch.hidden && map.some(r => /[1-9]/.test(r)) ? map : null;
 }
+/* Puzzle boards: the rat starts on a summit at the back and two or three platforms stand around the board that
+   can only be reached by dropping onto them from higher ground, never climbed. Take them in the wrong order
+   and it is a long way round (or a ride in the one lift) to get above them again.
+   Worked on plain arrays (cube number -> height, ramp direction), since many tries are made per board. */
+function puzzleHeights(res) {
+  const cells = res.cells, n = cells.length, at = new Map(cells.map((c, i) => [key(c), i]));
+  const DV = [[1, 0], [-1, 0], [0, 1], [0, -1]], OPP = [1, 0, 3, 2];
+  const nb = cells.map(c => DV.map(d => { const k = at.get(key([c[0] + d[0], c[1] + d[1]])); return k === undefined ? -1 : k; }));
+  const H = new Array(n).fill(0), R = new Array(n).fill(-1), start = at.get(key(res.start));
+  const ds = cells.map(c => c[0] + c[1]), d0 = Math.min(...ds), d1 = Math.max(...ds);
+  if (d1 - d0 < 8) return null;
+  const edge = (i, d) => R[i] < 0 ? H[i] : d === R[i] ? H[i] + 1 : d === OPP[R[i]] ? H[i] : H[i] + 0.5;
+  const ok = (i, d) => { const j = nb[i][d]; if (j < 0) return false; const f = edge(i, d), t = edge(j, OPP[d]); return t <= f + 0.01 && f - t < 1.99; };
+  // summit and platforms, then their sides stepped down so that no neighbours are more than one apart
+  const hs = ri(2, 3);
+  cells.forEach((c, i) => { if (ds[i] <= d0 + ri(1, 2)) H[i] = hs; });
+  const mids = cells.map((c, i) => i).filter(i => ds[i] > d0 + 3 && ds[i] < d0 + (d1 - d0) * 0.7);
+  for (let k = ri(2, 4); k > 0 && mids.length; k--) {
+    const m = cells[pick(mids)], r = ri(1, 2), h = ri(1, hs);
+    cells.forEach((c, i) => { if (Math.abs(c[0] - m[0]) + Math.abs(c[1] - m[1]) <= r + (Math.random() < 0.3 ? 1 : 0)) H[i] = Math.max(H[i], h); });
+  }
+  const smooth = up => { for (let changed = true, k = 0; changed && k < 50; k++) { changed = false;
+    for (let i = 0; i < n; i++) for (let d = 0; d < 4; d++) { const j = nb[i][d]; if (j < 0) continue;
+      if (up && H[j] < H[i] - 1) { H[j] = H[i] - 1; changed = true; }
+      if (!up && H[j] > H[i] + 1) { H[j] = H[i] + 1; R[j] = -1; changed = true; } } } };
+  smooth(true);
+  // hidden: a cube a rows and b columns nearer stands higher than a + b steps (one less straight in front)
+  const FRONT = [[1, 0, 1], [0, 1, 1], [1, 1, 1], [2, 1, 3], [1, 2, 3], [2, 2, 3], [3, 2, 5], [2, 3, 5], [3, 3, 5]];
+  const fronts = cells.map(c => FRONT.map(([a, b, lim]) => [at.get(key([c[0] + a, c[1] + b])), lim]).filter(([k]) => k !== undefined));
+  const hider = () => { for (let i = 0; i < n; i++) for (const [f, lim] of fronts[i]) if (H[f] + (R[f] >= 0 ? 1 : 0) > H[i] + lim) return f; return -1; };
+  // the hop graph and its strongly connected parts (Tarjan)
+  const graph = () => {
+    const comp = new Array(n).fill(-1), low = [], num = [], stack = [], on = []; let c = 0, nc = 0;
+    const visit = v => {
+      num[v] = low[v] = c++; stack.push(v); on[v] = true;
+      for (let d = 0; d < 4; d++) if (ok(v, d)) { const w = nb[v][d]; if (num[w] === undefined) { visit(w); low[v] = Math.min(low[v], low[w]); } else if (on[w]) low[v] = Math.min(low[v], num[w]); }
+      if (low[v] === num[v]) { let w; do { w = stack.pop(); on[w] = false; comp[w] = nc; } while (w !== v); nc++; }
+    };
+    for (let i = 0; i < n; i++) if (num[i] === undefined) visit(i);
+    const size = new Array(nc).fill(0), leaf = new Array(nc).fill(true);
+    for (let i = 0; i < n; i++) { size[comp[i]]++; for (let d = 0; d < 4; d++) if (ok(i, d) && comp[nb[i][d]] !== comp[i]) leaf[comp[i]] = false; }
+    const seen = new Uint8Array(n), q = [start]; seen[start] = 1;
+    for (let k = 0; k < q.length; k++) for (let d = 0; d < 4; d++) if (ok(q[k], d) && !seen[nb[q[k]][d]]) { seen[nb[q[k]][d]] = 1; q.push(nb[q[k]][d]); }
+    let sink = -1; for (let k = 0; k < nc; k++) if (leaf[k] && (sink < 0 || size[k] > size[sink])) sink = k;
+    const plats = []; for (let k = 0; k < nc; k++) if (k !== comp[start] && k !== sink) plats.push(k);
+    return { comp, size, plats, seen, reach: q.length };
+  };
+  // Fix up: lower whatever hides something, sink crumbs, ramp up into parts that cannot be reached, and join
+  // one-way parts to the ground below with a ramp until two or three are left.
+  const want = ri(2, 3);
+  const rampInto = (g, target) => {
+    const spots = [];
+    for (let i = 0; i < n; i++) for (let d = 0; d < 4; d++) {
+      const u = nb[i][d], lo = nb[i][OPP[d]];
+      if (u < 0 || lo < 0 || i === start || R[i] >= 0 || R[u] >= 0 || R[lo] >= 0 || H[u] !== H[i] + 1 || H[lo] !== H[i]) continue;
+      if (g.comp[u] === target && g.comp[i] !== target) spots.push([i, d]);
+    }
+    if (!spots.length) return false;
+    const [i, d] = pick(spots); R[i] = d; return true;
+  };
+  const sink = (g, set) => { for (let i = 0; i < n; i++) if (set(g.comp[i]) && H[i] > 0) { H[i]--; R[i] = -1; } };
+  let g = null;
+  for (let k = 0; k < 40; k++) {
+    smooth(false);
+    const f = hider(); if (f >= 0) { H[f]--; R[f] = -1; continue; }
+    g = graph();
+    const tiny = g.plats.filter(c => g.size[c] < 3);
+    if (tiny.length) { sink(g, c => tiny.includes(c)); continue; }
+    let target = -1;
+    if (g.reach < n) { const lost = []; for (let i = 0; i < n; i++) if (!g.seen[i]) lost.push(i); target = g.comp[pick(lost)]; }
+    else if (g.plats.length > want) target = pick(g.plats);
+    else break;
+    if (!rampInto(g, target)) sink(g, c => c === target);
+    g = null;
+  }
+  if (!g || g.reach < n || hider() >= 0 || g.plats.length < 2 || g.plats.length > 3) return null;
+  const m = res.map.map(r => [...r]), RC = ["v", "^", ">", "<"];
+  cells.forEach((c, i) => { m[c[0]][c[1]] = R[i] >= 0 ? RC[R[i]] : H[i] ? String(H[i]) : "#"; });
+  const map = m.map(r => r.join("")), ch = heightCheck(map, res.start);     // and one last look with the game's own rules
+  return ch.reach === ch.total && !ch.hidden ? map : null;
+}
 function randomLifts(res, n) {
   const off = new Map(), on = new Set(res.cells.map(key));
   for (const c of res.cells) for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -2241,6 +2322,9 @@ function randomLevels() {
   const slots = [];
   while (slots.length < 3) { const n = ri(3, 19); if (!slots.some(s => Math.abs(s - n) < 3)) slots.push(n); }
   slots.forEach((n, i) => letterAt.set(n, letters[i]));
+  // Three puzzle boards later on, never on a letter level and never two in a row.
+  const puzzles = new Set();
+  while (puzzles.size < 3) { const n = ri(6, 20); if (!letterAt.has(n) && ![...puzzles].some(p => Math.abs(p - n) < 2)) puzzles.add(n); }
   let last = "";
   for (let n = 1; n <= 20; n++) {
     const t = (n - 1) / 19;
@@ -2254,15 +2338,24 @@ function randomLevels() {
       res = randomBoard(type, t, sc);
     }
     last = type;
+    let puzzle = false;
+    if (puzzles.has(n)) {
+      for (let k = 0; k < 60 && !puzzle; k++) {
+        const r = randomBoard(pick(["blob", "rooms", "blob"]), t, pick([1, 1.15, 1.35]));
+        if (r.count < 60 || r.count > 260) continue;
+        const m = puzzleHeights(r);
+        if (m) { res = r; res.map = m; puzzle = true; type = "puzzle"; }
+      }
+    }
     const big = res.count > 150, mid = res.count > 75;
     // From level 4 on, about half the boards get terraces: up to one step on small boards, up to three on big ones.
-    if (n >= 4 && res.count >= 40 && Math.random() < (big ? 0.65 : 0.45)) {
+    if (!puzzle && n >= 4 && res.count >= 40 && Math.random() < (big ? 0.65 : 0.45)) {
       const top = big ? ri(2, 3) : mid ? ri(1, 2) : 1;
       for (let k = 0; k < 8; k++) { const m = addHeights(res, top, big ? ri(1, 2) : 0); if (m) { res.map = m; break; } }
     }
     list.push({
       map: res.map,
-      lifts: randomLifts(res, 2 + Math.round(t * 2) + (big ? 1 : 0) + (type === "maze" ? 1 : 0)),
+      lifts: randomLifts(res, puzzle ? 1 + (big ? 1 : 0) : 2 + Math.round(t * 2) + (big ? 1 : 0) + (type === "maze" ? 1 : 0)),
       cats: Math.min(1 + Math.floor(t * 2.99), 1) + (mid ? 1 : 0) + (big && t > 0.3 ? 1 : 0),
       maxGels: 3 + Math.round(t * 4) + (big ? 1 : 0),
       gelHop: 0.5 - t * 0.12,
