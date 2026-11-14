@@ -2457,16 +2457,23 @@ const bossHullCv = {};
 function bossHull(green) {               // 208 x 52 armour seen from above: black, or green for the last level
   const kind = green ? "green" : "black";
   if (bossHullCv[kind]) return bossHullCv[kind];
-  const col = green ? ["#7fe08a", "#2e8b3e", "#38a04a", "#a6f0ae", "#5fd06e"] : ["#2b2c38", "#15161e", "#1d1e28", "#3a3c4c", "#2f3140"];
+  // a battleship: armour plates with rivets, a bridge tower with lit windows, engines glowing at the back
+  const C = green
+    ? { out: "#7fe08a", hull: "#2e8b3e", seam: "#277a35", rivet: "#a6f0ae", tower: "#38a04a", top: "#5fd06e", eng: "#3f8a4c" }
+    : { out: "#2b2c38", hull: "#191a23", seam: "#2c2e3c", rivet: "#4a4d60", tower: "#2a2c39", top: "#3a3d4e", eng: "#4b4f60" };
   const c = document.createElement("canvas"); c.width = 208; c.height = 52;
   const g = c.getContext("2d"), P = (pts, col) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.fillStyle = col; g.fill(); };
-  P([[4, 22], [40, 8], [76, 4], [132, 4], [168, 8], [204, 22], [196, 36], [150, 44], [124, 50], [84, 50], [58, 44], [12, 36]], col[0]);
-  P([[10, 23], [42, 11], [78, 7], [130, 7], [166, 11], [198, 23], [192, 33], [148, 41], [122, 46], [86, 46], [60, 41], [16, 33]], col[1]);
-  P([[70, 12], [138, 12], [150, 30], [58, 30]], col[2]);
-  g.fillStyle = col[3]; for (let x = 20; x < 190; x += 12) g.fillRect(x, 21, 6, 1);
-  g.fillStyle = col[4]; g.fillRect(30, 30, 148, 1);
-  g.fillStyle = "#ff3b3b"; for (const lx of [24, 182, 60, 148]) g.fillRect(lx, 27, 2, 2);
-  g.fillStyle = "#6b7080"; for (const ex of [70, 96, 112, 138]) g.fillRect(ex, 0, 4, 5);
+  const R = (x, y, w, h, col) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  const Ln = (pts, col) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x + 0.5, y + 0.5) : g.moveTo(x + 0.5, y + 0.5)); g.strokeStyle = col; g.lineWidth = 1; g.stroke(); };
+  P([[4, 22], [40, 8], [76, 4], [132, 4], [168, 8], [204, 22], [196, 36], [150, 44], [124, 50], [84, 50], [58, 44], [12, 36]], C.out);
+  P([[10, 23], [42, 11], [78, 7], [130, 7], [166, 11], [198, 23], [192, 33], [148, 41], [122, 46], [86, 46], [60, 41], [16, 33]], C.hull);
+  for (let x = 18; x < 192; x += 16) Ln([[x, Math.round(10 + Math.abs(x - 104) * 0.12)], [x, Math.round(44 - Math.abs(x - 104) * 0.1)]], C.seam);   // armour plates
+  Ln([[14, 27], [194, 27]], C.seam);
+  for (let x = 22; x < 190; x += 8) { R(x, Math.round(13 + Math.abs(x - 104) * 0.09), 1, 1, C.rivet); R(x, Math.round(40 - Math.abs(x - 104) * 0.07), 1, 1, C.rivet); }
+  P([[80, 10], [128, 10], [136, 26], [72, 26]], C.tower); P([[88, 12], [120, 12], [124, 22], [84, 22]], C.top);
+  R(92, 14, 24, 3, "#6ed7ff"); R(92, 14, 24, 1, "#c9f2ff");                       // the bridge windows
+  for (const ex of [64, 92, 110, 138]) { R(ex, 0, 6, 6, C.eng); R(ex + 1, 0, 4, 2, "#8ad8ff"); }   // engines
+  R(24, 27, 2, 2, "#ff3b3b"); R(182, 27, 2, 2, "#ff3b3b");
   return bossHullCv[kind] = c;
 }
 // Pixel art drawn as written (no mirroring).
@@ -3298,10 +3305,18 @@ class Space extends Game {
         continue;
       }
       if (p.kind === "turret") {
+        // a twin-barrelled turret on a round base that turns to follow the ship; it kicks back when it fires
         const pr = this.playerRect(), mx = rx + r.w / 2, my = ry + r.h / 2, a = Math.atan2(pr.y + pr.h / 2 - my, pr.x + pr.w / 2 - mx);
-        rect(rx, ry, r.w, r.h, b.upright ? "#1d5a2c" : "#3b3d4a"); rect(rx + 1, ry + 1, r.w - 2, 2, b.upright ? "#5fd06e" : "#5a5d6e");
-        line([[mx, my], [mx + Math.cos(a) * 8, my + Math.sin(a) * 8]], "#8d93a3", 3);
-        rect(mx - 2, my - 1.5, 4, 3, b.phase === 1 ? `rgba(255,70,90,${0.6 + 0.4 * glowOn})` : "#552030");
+        const kick = p.t > 1.55 ? 2 : 0, base = b.upright ? ["#0f2e17", "#2f7a40", "#46a058"] : ["#1a1b24", "#4a4d5e", "#5f6376"];
+        ctx.beginPath(); ctx.arc(mx, my, 7, 0, TAU); ctx.fillStyle = base[0]; ctx.fill();
+        ctx.beginPath(); ctx.arc(mx, my, 6, 0, TAU); ctx.fillStyle = base[1]; ctx.fill();
+        ctx.beginPath(); ctx.arc(mx - 1, my - 1, 4.5, 0, TAU); ctx.fillStyle = base[2]; ctx.fill();
+        ctx.save(); ctx.translate(mx, my); ctx.rotate(a);
+        for (const o of [-2, 2]) { rect(2 - kick, o - 1, 10, 2, "#9aa0b2"); rect(2 - kick, o - 1, 10, 1, "#d8dce8"); rect(11 - kick, o - 1.5, 2, 3, "#2a2c38"); }
+        rect(-4, -3.5, 6, 7, b.upright ? "#24603a" : "#383b4a"); rect(-4, -3.5, 6, 1, b.upright ? "#7fe08a" : "#7a8094");
+        if (kick) { glow(13, 0, 5, 5, "rgba(255,200,120,A)", 0.8); }
+        ctx.restore();
+        ctx.beginPath(); ctx.arc(mx - 1, my - 1, 1.3, 0, TAU); ctx.fillStyle = b.phase === 1 ? `rgba(255,70,90,${0.6 + 0.4 * glowOn})` : "#552030"; ctx.fill();
       } else if (p.kind === "generator") {
         const live = b.phase === 2;
         ctx.beginPath(); ctx.arc(rx + 7, ry + 7, 6.5, 0, TAU); ctx.fillStyle = b.upright ? "#1d5a2c" : "#23252f"; ctx.fill();
@@ -3837,7 +3852,7 @@ class Space extends Game {
       const k = cyc - i * 0.07;
       if (k > 0 && k < 1) fly(k, (x, y, sc) => { const im = caveAlien((i + 1) % 5, Math.floor(t * 8) % 2), w = im.width * sc * 1.8, h = im.height * sc * 1.8; ctx.drawImage(im, x + 30 * sc - w / 2, y + (i % 2 ? -10 : 10) * sc - h / 2, w, h); });
     }
-    if (cyc < 1) fly(cyc, (x, y, sc) => { const im = bossHull(); ctx.drawImage(im, x - im.width * sc / 2, y - im.height * sc / 2, im.width * sc, im.height * sc); });
+    if (cyc < 1) fly(cyc, (x, y, sc) => { const im = bossHull(true); ctx.drawImage(im, x - im.width * sc / 2, y - im.height * sc / 2, im.width * sc, im.height * sc); });
     text("They are fleeing", 240, 216, { size: 22, w: 800, color: "#fff27f", outline: "#14082a" });
     text("into the caves!", 240, 240, { size: 22, w: 800, color: "#fff27f", outline: "#14082a" });
   }
