@@ -2,7 +2,7 @@
 
 Robotnik Arcade kan läggas som en ikon på hemskärmen, både på iPhone/iPad och Android. Spelet startar då i helskärm som en vanlig app och fungerar även utan nät, när det väl har öppnats en gång.
 
-**Spelets adress:** <!-- Fyll i adressen här --> `https://…`
+**Spelets adress:** https://2subaqua.github.io/robotnik-arcade/
 
 Spelet måste öppnas från den adressen. Det går inte att lägga till från en nedladdad fil.
 
