@@ -2485,6 +2485,21 @@ const CAVE_PILES = [[700, 3, 2], [1050, 4, 1], [1530, 2, 2], [2530, 3, 1], [2760
   [4800, 3, 2], [5590, 2, 1], [5900, 4, 2], [6900, 3, 1], [7180, 2, 2], [7380, 3, 2], [8240, 4, 1], [8420, 2, 2], [8650, 3, 2]];
 const CAVE_LAUNCHERS = [450, 1260, 1430, 1600, 2450, 2620, 2880, 3460, 3640, 4230,
   4620, 5520, 5660, 5800, 6820, 7060, 7300, 7440, 7570, 8160, 8330, 8520];   // rocket launchers on the floor
+// Fuel tanks stand two by two on a row of bricks wherever the cave floor is flat enough. Where along the cave
+// that is gets worked out once from the rock itself, keeping clear of walls, heaps and launchers.
+function caveTankSpots() {
+  const D = caveDesign();
+  if (D.tanks) return D.tanks;
+  const out = [];
+  for (let x = 220; x < 8760; x += 4) {
+    const i0 = Math.floor(x / 4) - 5, i1 = i0 + 10, bots = D.bot.slice(i0, i1), gaps = bots.map((b, k) => b - D.top[i0 + k]);
+    if (Math.max(...bots) - Math.min(...bots) > 6 || Math.min(...gaps) < 86) continue;   // the bricks fill out small dips
+    if (CAVE_WALLS.some(w => Math.abs(w - x) < 130) || CAVE_LAUNCHERS.some(l => Math.abs(l - x) < 50)
+      || CAVE_PILES.some(([px, n]) => x > px - 30 && x < px + n * 8 + 30) || (out.length && x - out[out.length - 1] < 380)) continue;
+    out.push(x);
+  }
+  return D.tanks = out;
+}
 let caveDesignCache = null;
 function caveDesign() {
   if (caveDesignCache) return caveDesignCache;
@@ -3316,7 +3331,7 @@ class Space extends Game {
   buildCave() {
     const c = this.c;
     this.caveTop = []; this.caveBot = []; this.caveSeg = null;
-    this.walls = []; this.launchers = []; this.rockets = []; this.bomb = null; this.kills = 0; this.powDue = false;
+    this.walls = []; this.launchers = []; this.tanks = []; this.rockets = []; this.bomb = null; this.kills = 0; this.powDue = false;
     if (c.design) {
       // Coming straight from level 10 the cave just carries on (no jump back); otherwise start at this half.
       if (!(this.caveX >= c.from && this.caveX < c.from + 400)) this.caveX = c.from;
@@ -3337,6 +3352,10 @@ class Space extends Game {
       for (const lx of CAVE_LAUNCHERS) if (lx > this.caveX + 150 && lx < c.to) {
         const base = heap(lx - 12, 3, 1);              // every launcher stands on a layer of bricks
         this.launchers.push({ wx: lx, y: base.top, base: base.w, on: true, cool: 1 + (lx % 7) * 0.3, aim: -Math.PI / 2 });
+      }
+      for (const tx of caveTankSpots()) if (tx > this.caveX + 150 && tx < c.to) {
+        const base = heap(tx - 16, 4, 1);              // a pair of fuel tanks on one row of bricks
+        for (const dx of [-7, 8]) this.tanks.push({ wx: tx + dx, y: base.top, base: base.w, on: true });
       }
     } else this.caveX = 0;
     this.waves = []; this.aliens = []; this.shields = [];
@@ -3417,12 +3436,14 @@ class Space extends Game {
   // Screen position of something fixed in the cave.
   sx(wx) { return LEFT + wx - this.caveX; }
   wallRects(w) { const x = this.sx(w.wx); return w.blocks.filter(b => b.on).map(b => ({ b, x: x + b.col * 8, y: b.y, w: 8, h: 6 })); }
+  tankRect(k) { return { x: this.sx(k.wx) - 6, y: k.y - 19, w: 12, h: 19 }; }
   launcherRect(l) { return { x: this.sx(l.wx) - 9, y: l.y - 17, w: 18, h: 17 }; }
   inWall(x, y) { return this.walls.some(w => this.wallRects(w).some(r => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)); }
   updateCaveThings(dt) {
     const c = this.c, pr = this.playerRect(), px = pr.x + pr.w / 2, py = pr.y + pr.h / 2;
     // (walls and launchers that have gone by are kept: after a crash the cave backs up and they come round again)
     for (const l of this.launchers) if (l.on && l.base && !l.base.blocks.some(b => b.on)) this.killLauncher(l);   // shot out from under it
+    for (const k of this.tanks) if (k.on && !k.base.blocks.some(b => b.on)) this.killTank(k);
     const live = this.state === "play" && this.cannonOn && this.t > this.safeUntil;
     // Rocket launchers: the tube turns to the ship, and a rocket goes up every few seconds.
     for (const l of this.launchers) {
@@ -3439,14 +3460,9 @@ class Space extends Game {
       l.flash = 0.12;
       Sound.play("bossfire");
     }
-    // Rockets steer towards the ship for a short while, then fly straight on.
+    // Rockets fly straight on from where the pod was pointing when they left: no homing.
     this.rockets = this.rockets.filter(r => {
       r.t += dt;
-      if (r.t < 1.1) {
-        const want = Math.atan2(py - r.y, px - r.x), have = Math.atan2(r.vy, r.vx), v = Math.hypot(r.vx, r.vy);
-        let d = want - have; d = mod(d + Math.PI, TAU) - Math.PI;
-        const a = have + clamp(d, -1.6 * dt, 1.6 * dt); r.vx = Math.cos(a) * v; r.vy = Math.sin(a) * v;
-      }
       r.x += r.vx * dt; r.y += r.vy * dt;
       if (r.x < LEFT - 8 || r.x > RIGHT + 8 || r.y < -8 || r.y > 278) return false;
       if (this.inRock(r.x, r.y) || this.inWall(r.x, r.y)) { this.boom(r.x, r.y, "red"); return false; }
@@ -3458,11 +3474,12 @@ class Space extends Game {
     if (b) {
       b.vy += 240 * dt; b.x += b.vx * dt; b.y += b.vy * dt;
       const hitThing = this.launchers.some(l => l.on && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, this.launcherRect(l)))
+        || this.tanks.some(k => k.on && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, this.tankRect(k)))
         || this.aliens.some(a => a && a.wait <= 0 && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, this.aRect(a)));
       if (hitThing || this.inRock(b.x, b.y) || this.inWall(b.x, b.y) || b.y > 272 || b.x > RIGHT + 6) this.explodeBomb(b.x, b.y);
     }
     // Flying into a wall or a launcher is as bad as flying into the rock.
-    if (live && (this.walls.some(w => this.wallRects(w).some(r => overlap(r, pr))) || this.launchers.some(l => l.on && overlap(this.launcherRect(l), pr)))) { delete this.powers.shield; this.playerHit(); }
+    if (live && (this.walls.some(w => this.wallRects(w).some(r => overlap(r, pr))) || this.launchers.some(l => l.on && overlap(this.launcherRect(l), pr)) || this.tanks.some(k => k.on && overlap(this.tankRect(k), pr)))) { delete this.powers.shield; this.playerHit(); }
   }
   explodeBomb(x, y) {
     this.bomb = null;
@@ -3470,9 +3487,21 @@ class Space extends Game {
     const R = 15, near = r => Math.hypot(clamp(x, r.x, r.x + r.w) - x, clamp(y, r.y, r.y + r.h) - y) < R;
     for (const w of this.walls) for (const r of this.wallRects(w)) if (near(r)) { r.b.on = false; this.addScore(10); }
     for (const l of this.launchers) if (l.on && near(this.launcherRect(l))) this.killLauncher(l);
+    for (const k of this.tanks) if (k.on && near(this.tankRect(k))) this.killTank(k);
     this.aliens.forEach((a, i) => { if (a && a.wait <= 0 && near(this.aRect(a))) this.killAlien(i); });
     this.rockets = this.rockets.filter(r => { if (Math.hypot(r.x - x, r.y - y) < R) { this.boom(r.x, r.y, "red"); return false; } return true; });
     if (this.pow && Math.hypot(this.pow.x - x, this.pow.y - y) < R + 6) { this.collect(this.pow); this.pow = null; }
+  }
+  // A fuel tank goes up in a big ball of fire, and takes its neighbour with it a moment later.
+  killTank(k) {
+    if (!k.on) return;
+    k.on = false;
+    const r = this.tankRect(k), x = r.x + 6, y = r.y + 8;
+    this.addScore(150); this.float("150", x, r.y - 6, 0.8);
+    this.boom(x, y - 4, "big"); this.boom(x - 6, y + 4, "bomb"); this.boom(x + 7, y - 10, "bomb");
+    this.flashT = 0.12;
+    Sound.play("boomBaboom", false, 1, "enemyboom" + (this.boomVoice = ((this.boomVoice || 0) + 1) % 3));
+    for (const o of this.tanks) if (o.on && o.base === k.base) this.after(0.18, () => this.killTank(o));
   }
   killLauncher(l) {
     l.on = false;
@@ -3498,6 +3527,7 @@ class Space extends Game {
     for (const w of this.walls) for (const r of this.wallRects(w)) if (s.x >= r.x - 3 && s.x < r.x + r.w + 3 && s.y >= r.y && s.y < r.y + r.h && (!best || r.x < best.x)) best = r;
     if (best) { best.b.on = false; this.addScore(10); this.boom(best.x + 4, best.y + 3, "blue"); Sound.play("eboom"); return true; }
     for (const l of this.launchers) if (l.on && overlap(this.shotRect(s), this.launcherRect(l))) { this.killLauncher(l); return true; }
+    for (const k of this.tanks) if (k.on && overlap(this.shotRect(s), this.tankRect(k))) { this.killTank(k); return true; }
     for (let i = 0; i < this.rockets.length; i++) {
       const r = this.rockets[i];
       if (Math.abs(r.x - s.x) < 7 && Math.abs(r.y - s.y) < 5) { this.rockets.splice(i, 1); this.boom(r.x, r.y, "red"); this.addScore(20); return true; }
@@ -3554,6 +3584,21 @@ class Space extends Game {
         rect(x + 3, y + 2, 2, 2, k > 0.5 ? "#e4f7ff" : "#a6e0ff");
       }
     }
+    // Fuel tanks: big yellow upright cylinders with a domed top, steel bands and a black and yellow hazard stripe.
+    for (const k of this.tanks) {
+      const x = Math.round(this.sx(k.wx)), y = Math.round(k.y);
+      if (x < LEFT - 10 || x > RIGHT + 10) continue;
+      if (!k.on) { rect(x - 6, y - 3, 12, 3, "#2e2416"); rect(x - 4, y - 5, 3, 2, "#1f180e"); rect(x + 1, y - 4, 4, 1, "#1f180e"); continue; }
+      rect(x - 6, y - 16, 12, 16, "#f2c230");                 // the drum
+      rect(x - 6, y - 16, 3, 16, "#ffe680"); rect(x - 5, y - 16, 1, 16, "#fff6c4");   // light from the left
+      rect(x + 3, y - 16, 3, 16, "#c48f16"); rect(x + 5, y - 16, 1, 16, "#8f630c");   // shade on the right
+      ctx.beginPath(); ctx.ellipse(x, y - 16, 6, 2.5, 0, Math.PI, TAU); ctx.fillStyle = "#ffd84a"; ctx.fill();
+      rect(x - 1, y - 20, 2, 2, "#8a8fa0");                    // valve on top
+      for (const by of [y - 13, y - 3]) { rect(x - 6, by, 12, 1, "#7a5a10"); rect(x - 6, by + 1, 12, 1, "#ffe680"); }
+      for (let i = 0; i < 4; i++) { rect(x - 6 + i * 3, y - 9, 2, 3, "#1a1208"); }   // hazard stripe
+      rect(x - 6, y - 9, 12, 1, "#1a1208"); rect(x - 6, y - 7, 12, 1, "#1a1208");
+      line([[x - 6, y - 16], [x - 6, y]], "#6b4a08"); line([[x + 6, y - 16], [x + 6, y]], "#6b4a08");
+    }
     // Rocket launchers: a pod of four tubes on a hydraulic arm, over a base with exhaust vents.
     for (const l of this.launchers) {
       const x = Math.round(this.sx(l.wx)), y = Math.round(l.y);
@@ -3576,6 +3621,7 @@ class Space extends Game {
       rect(-9 - (Math.floor(this.t * 30) % 3), -1, 4, 2, "#ffd34d"); rect(-5, -1.5, 7, 3, "#f0eef6"); rect(2, -1, 2, 2, "#ff3b4e"); rect(-5, -2.5, 2, 5, "#9a98a6");
       ctx.restore();
     }
+    if (this.flashT > 0) { rect(LEFT, 0, 240, H, `rgba(255,220,150,${this.flashT * 2})`); this.flashT -= 1 / 60; }   // a burning tank lights up the cave
     if (this.bomb) {
       const b = this.bomb, x = Math.round(b.x), y = Math.round(b.y);
       ctx.beginPath(); ctx.ellipse(x, y, 3, 2.2, Math.atan2(b.vy, b.vx), 0, TAU); ctx.fillStyle = "#1a1030"; ctx.fill();
