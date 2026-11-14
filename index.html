@@ -2903,6 +2903,7 @@ class Space extends Game {
     const c = this.c;
     if (c.design) {
       if (this.pow) { this.pow.x -= this.caveDX || 0; if (this.pow.x < LEFT - 12) this.missedPower(); }
+      else this.spawnCavePow();
       return;
     }
     if (!c.powerups) return;
@@ -3501,6 +3502,7 @@ class Space extends Game {
       b.vy += 240 * dt; b.x += b.vx * dt; b.y += b.vy * dt;
       const hitThing = this.launchers.some(l => l.on && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, this.launcherRect(l)))
         || this.tanks.some(k => k.on && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, this.tankRect(k)))
+        || (this.pow && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, { x: this.pow.x - 8, y: this.pow.y - 8, w: 16, h: 16 }))   // a bomb that touches the cylinder goes off
         || this.aliens.some(a => a && a.wait <= 0 && overlap({ x: b.x - 2, y: b.y - 2, w: 4, h: 4 }, this.aRect(a)));
       if (hitThing || this.inRock(b.x, b.y) || this.inWall(b.x, b.y) || b.y > 272 || b.x > RIGHT + 6) this.explodeBomb(b.x, b.y);
     }
@@ -3541,11 +3543,19 @@ class Space extends Game {
   caveKill() {
     this.kills++;
     if (this.kills % 6 === 0) this.powDue = true;
-    if (this.powDue && !this.pow) {
-      const pool = Object.keys(POWERS).filter(k => k === "life" ? this.lives < 5 : !this.powers[k]);
-      this.powDue = false;
-      if (pool.length) this.pow = { type: pick(pool), d: 0, x: RIGHT + 10, y: this.caveBot[this.colAt(RIGHT + 10)] - 8, stand: true };
-    }
+    this.spawnCavePow();
+  }
+  // The cylinder waits for a fairly level bit of floor coming in at the right (not the tip of a stalagmite,
+  // not a heap or a launcher) and stands on its highest point, so it never sinks into a slope.
+  spawnCavePow() {
+    if (!this.powDue || this.pow) return;
+    const x = RIGHT + 10, i = this.colAt(x), fl = [-2, -1, 0, 1, 2].map(d => this.caveBot[i + d]);
+    if (Math.max(...fl) - Math.min(...fl) > 8) return;
+    const spot = { x: x - 8, y: Math.min(...fl) - 20, w: 16, h: 20 };
+    if (this.walls.some(w => this.wallRects(w).some(r => overlap(r, spot))) || this.launchers.some(l => l.on && overlap(this.launcherRect(l), spot)) || this.tanks.some(k => k.on && overlap(this.tankRect(k), spot))) return;
+    const pool = Object.keys(POWERS).filter(k => k === "life" ? this.lives < 5 : !this.powers[k]);
+    this.powDue = false;
+    if (pool.length) this.pow = { type: pick(pool), d: 0, x, y: Math.min(...fl) - 8, stand: true };
   }
   // A player's shot against the walls, launchers and rockets.
   shotHitsCave(s) {
