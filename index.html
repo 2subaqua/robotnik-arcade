@@ -1506,17 +1506,22 @@ class Cheese extends Game {
       this.cheeses.set(key(cell), { x: p[0], y: p[1], kind: "cheese", visible: true, cell });
     }
     const m = Math.floor(rows.length / 2);
-    const liftCells = Array.isArray(c.lifts) ? c.lifts : [[m, -1], [-1, m]].slice(0, c.lifts);
-    liftCells.forEach(cell => {
-      const h = this.liftH(cell), p = this.pos(cell, h);
-      this.lifts.set(key(cell), { x: p[0], y: p[1] + 4, h, cell });
+    // Landing cubes: H1 is the start, H2, H3 ... come from the level's "landings" (never on a ramp).
+    this.landings = [this.start, ...(c.landings || []).filter(l => this.onBoard(l) && !this.tile.get(key(l)).ramp)];
+    // A lift is [row, col] or [row, col, height, landing]: no height (null) = level with the highest cube next to it,
+    // reachable from any of them as before; with a height it obeys the cube rules (step in level, or drop one floor).
+    const liftCells = Array.isArray(c.lifts) ? c.lifts.map(l => [l[0], l[1]]) : [[m, -1], [-1, m]].slice(0, c.lifts);
+    liftCells.forEach((cell, i) => {
+      const spec = Array.isArray(c.lifts) ? c.lifts[i] : [], fixed = spec[2] != null, h = fixed ? spec[2] : this.liftH(cell), p = this.pos(cell, h);
+      const to = clamp(Math.round(spec[3] || 1), 1, this.landings.length);
+      this.lifts.set(key(cell), { x: p[0], y: p[1] + 4, h, cell, fixed, to });
     });
     this.rat = this.actor("rat", this.start);
     // Lucky tile: every other level from level 2, once, at least 15 s in.
     this.bonus = null; this.bonusDone = false; this.cheeseTotal = this.cheeses.size;
     this.lucky = null; this.levelT = 0; this.luckyAt = (this.level + 1) % 2 === 0 ? rnd(15, 30) : Infinity;
     // What the camera may show.
-    const pts = [...this.cells.map(cl => this.pos(cl)), ...liftCells.map(cl => this.pos(cl, this.liftH(cl)))], gnd = [...this.cells, ...liftCells].map(cl => this.pos(cl, 0));
+    const pts = [...this.cells.map(cl => this.pos(cl)), ...[...this.lifts.values()].map(l => this.pos(l.cell, l.h))], gnd = [...this.cells, ...liftCells].map(cl => this.pos(cl, 0));
     this.minX = Math.min(...pts.map(p => p[0])) - this.hw; this.maxX = Math.max(...pts.map(p => p[0])) + this.hw;
     this.minY = Math.min(...pts.map(p => p[1])) - this.hh; this.maxY = Math.max(...gnd.map(p => p[1])) + this.hh + this.dep;
     this.cam = this.camGoal();
@@ -1620,7 +1625,11 @@ class Cheese extends Game {
   ratHop(dir) {
     const r = this.rat, to = [r.cell[0] + dir[0], r.cell[1] + dir[1]];
     r.flip = (dir[0] === 0 && dir[1] === -1) || (dir[0] === 1 && dir[1] === 0);
-    const st = this.lifts.has(key(to)) ? "lift" : this.step(r.cell, dir);
+    let st = this.lifts.has(key(to)) ? "lift" : this.step(r.cell, dir);
+    if (st === "lift") {                // a lift with a set height: in level, or down one floor, never up
+      const l = this.lifts.get(key(to)), e = this.edgeOf(this.tile.get(key(r.cell)), dir);
+      if (l.fixed && (e < l.h - 0.01 || e - l.h >= 1.99)) st = "wall";
+    }
     if (st === "wall") { this.bump(r); return; }
     Sound.play("hop");
     if (st === "lift") { this.rideLift(to); return; }
@@ -1756,7 +1765,8 @@ class Cheese extends Game {
     this.hop(r, cell, this.c.ratHop, 14, () => {
       r.busy = true;
       Sound.play("lift");
-      const a = this.pos(this.start), tx = a[0], ty = a[1] - 34, rx = r.x, ry = r.y, lx = l.x, ly = l.y;
+      const dest = this.landings[l.to - 1] || this.start;          // where this lift goes: H1 (the start), H2 ...
+      const a = this.pos(dest), tx = a[0], ty = a[1] - 34, rx = r.x, ry = r.y, lx = l.x, ly = l.y;
       this.tween(Math.max(1.2, Math.hypot(tx - rx, ty - ry) / 200), t => {
         const s = 0.5 - Math.cos(Math.PI * t) / 2;
         r.x = rx + (tx - rx) * s; r.y = ry + (ty - ry) * s;
@@ -1764,7 +1774,7 @@ class Cheese extends Game {
       }, () => {
         this.riderLift = null;
         r.z = 1;
-        this.hop(r, this.start, 0.3, 6, () => { r.z = 0; r.anim = "idle"; this.riding = false; });
+        this.hop(r, dest, 0.3, 6, () => { r.z = 0; r.anim = "idle"; this.riding = false; });
       });
     }, l.h);
   }
@@ -1941,6 +1951,11 @@ class Cheese extends Game {
     const wave = Math.pow(Math.max(Math.sin(t * 2.6 - (i + j) * 0.55 + i * 0.3), 0), 6);
     drawBlock(g[0], g[1], this.hw, this.hh, this.dep, this.zs, this.corners(cell), hue, this.visited.has(key(cell)), wave);
     if (this.lucky && same(cell, this.lucky.cell)) this.drawLucky(p, cell);
+    const li = this.landings.length > 1 ? this.landings.findIndex(l => same(l, cell)) : -1;
+    if (li >= 0) {                       // a landing cube, painted with its number
+      ctx.font = "800 7px Nunito, system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(26,13,51,.6)"; ctx.fillText("H" + (li + 1), p[0], p[1] + 7);      // near the front corner, clear of the cheese
+    }
     if (wave > 0.6) rect(p[0] + Math.sin(i * 7) * 6 - 1, p[1] + Math.cos(j * 5) * 3 - 1, 2, 2, `rgba(255,255,255,${wave})`);
   }
   // Everything on the board in painter's order: row + column first, cubes before what stands on them.
@@ -1953,10 +1968,15 @@ class Cheese extends Game {
     items.sort((a, b) => a.d - b.d || a.o - b.o || a.y - b.y).forEach(it => it.f());
   }
   drawLift(l) {
+    const y = l.y + Math.sin(this.t * 3) * 1.5;
     for (let k = 0; k < 4; k++) {
-      const r = 11 - k * 2.5, y = l.y + Math.sin(this.t * 3) * 1.5;
+      const r = 11 - k * 2.5;
       ctx.beginPath(); ctx.ellipse(l.x, y, r, r * 0.45, 0, 0, TAU);
       ctx.fillStyle = css(hsv(this.t * 0.8 + k * 0.25, 0.6, 1)); ctx.fill();
+    }
+    if (this.landings.length > 1) {      // which landing it goes to
+      ctx.font = "800 8px Nunito, system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.lineWidth = 2.5; ctx.strokeStyle = "#1a0d33"; ctx.strokeText(String(l.to), l.x, y - 0.5); ctx.fillStyle = "#fff"; ctx.fillText(String(l.to), l.x, y - 0.5);
     }
   }
   draw() {
@@ -2303,10 +2323,11 @@ function puzzleHeights(res) {
     g = null;
   }
   if (!g || g.reach < n || hider() >= 0 || g.plats.length < 2 || g.plats.length > 3) return null;
+  const platCells = cells.filter((c, i) => g.plats.includes(g.comp[i]) && R[i] < 0);
   const m = res.map.map(r => [...r]), RC = ["v", "^", ">", "<"];
   cells.forEach((c, i) => { m[c[0]][c[1]] = R[i] >= 0 ? RC[R[i]] : H[i] ? String(H[i]) : "#"; });
   const map = m.map(r => r.join("")), ch = heightCheck(map, res.start);     // and one last look with the game's own rules
-  return ch.reach === ch.total && !ch.hidden ? map : null;
+  return ch.reach === ch.total && !ch.hidden ? { map, platCells } : null;
 }
 function randomLifts(res, n) {
   const off = new Map(), on = new Set(res.cells.map(key));
@@ -2353,7 +2374,7 @@ function randomLevels() {
         const r = randomBoard(pick(["blob", "rooms", "blob"]), t, pick([1, 1.15, 1.35]));
         if (r.count < 60 || r.count > 260) continue;
         const m = puzzleHeights(r);
-        if (m) { res = r; res.map = m; puzzle = true; type = "puzzle"; }
+        if (m) { res = r; res.map = m.map; res.platCells = m.platCells; puzzle = true; type = "puzzle"; }
       }
     }
     const big = res.count > 150, mid = res.count > 75;
@@ -2362,9 +2383,16 @@ function randomLevels() {
       const top = big ? ri(2, 3) : mid ? ri(1, 2) : 1;
       for (let k = 0; k < 8; k++) { const m = addHeights(res, top, big ? ri(1, 2) : 0); if (m) { res.map = m; break; } }
     }
+    const lifts = randomLifts(res, puzzle ? 2 + (big ? 1 : 0) : 2 + Math.round(t * 2) + (big ? 1 : 0) + (type === "maze" ? 1 : 0));
+    let landings;
+    if (puzzle && res.platCells && res.platCells.length && lifts.length >= 2) {
+      // on a puzzle board one lift goes up onto a platform (H2) instead of back to the start
+      landings = [pick(res.platCells)];
+      lifts[1] = [lifts[1][0], lifts[1][1], null, 2];
+    }
     list.push({
-      map: res.map,
-      lifts: randomLifts(res, puzzle ? 1 + (big ? 1 : 0) : 2 + Math.round(t * 2) + (big ? 1 : 0) + (type === "maze" ? 1 : 0)),
+      map: res.map, landings,
+      lifts,
       cats: Math.min(1 + Math.floor(t * 2.99), 1) + (mid ? 1 : 0) + (big && t > 0.3 ? 1 : 0),
       maxGels: 3 + Math.round(t * 4) + (big ? 1 : 0),
       gelHop: 0.5 - t * 0.12,
