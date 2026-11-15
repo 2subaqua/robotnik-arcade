@@ -108,7 +108,7 @@ const LEVELS = {
   //   Boards too big for the screen scroll after the rat.
   cheese: [
     { size: 6 },
-        { lifts: [[7, 8], [0, 8, null, 2]], landings: [[7, 0]], map: [
+    { lifts: [[7, 8], [0, 8, null, 2]], landings: [[7, 0]], map: [
   "111111##",
   "111111##",
   "111111##",
@@ -190,6 +190,7 @@ const LEVELS = {
       ".#########.",
       "...#####...",
     ] },
+
     // earth: seen from above over the ground. waves x perWave ships attack in random formations.
     { earth: true, splash: true, waves: 4, perWave: 6, fire: 1.2 },
     { earth: true, waves: 5, perWave: 7, fire: 1.5 },
@@ -855,7 +856,10 @@ const Input = {
   },
   update() {
     const pad = this.readPad();
-    if (Object.keys(pad).length) Sound.wake();   // works only where the browser accepts a gamepad as a gesture
+    if (Object.keys(pad).length) {
+      Sound.wake();                      // works only where the browser accepts a gamepad as a gesture
+      this.touchMode = false;            // playing with a controller: hide the touch pads until the screen is touched again
+    }
     for (const a of ACTIONS) {
       const now = !!(this.kb[a] || this.latch[a] || pad[a] || this.touch[a]);
       this.just[a] = now && !this.prev[a];
