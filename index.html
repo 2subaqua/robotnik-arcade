@@ -77,205 +77,37 @@ const DEFAULTS = {
   },
 };
 const LEVELS = {
-  // size: a square board, or map: rows of cubes (#) and holes (anything else).
-  // The rat starts on the first cube of the first row, so keep that one.
-  // lifts: how many (0-2), or a list of [row, column] cells next to the board.
-  // Boards too big for the screen pan after the rat by themselves.
-  // Varje hiss är en [rad, kolumn] i banans textrader, där första raden och första tecknet är 0. Regeln är att platsen måste vara tom men ligga direkt intill en ruta, så att råttan kan hoppa dit.
-  // På skärmen är rutnätet vridet 45 grader, så här går det:
-  // Ändrar du Rör du dig på skärmen
-  // Rad +1  Snett ner åt vänster
-  // Rad −1  Snett upp åt höger
-  // Kolumn +1 Snett ner åt höger
-  // Kolumn −1 Snett upp åt vänster
-  // Utanför kanten använder du −1, eller värdet ett steg efter sista raden/kolumnen. För en bana på 9×9, där raderna och kolumnerna går 0-8:
-  // [-1, 4]   övre högra kanten, mitt på
-  // [4, -1]   övre vänstra kanten, mitt på
-  // [9, 4]    nedre vänstra kanten, mitt på
-  // [4, 9]    nedre högra kanten, mitt på
-  // En hiss kan också ligga i ett hål, så länge hålet gränsar till en ruta. På nivå 5 ligger till exempel [5, 20] i tomrummet ovanför långa armen, intill rutan [6, 20].
-  // Att tänka på för spelet:
-  // Hissen tar alltid råttan till startrutan [0, 0], och den försvinner efter en resa. Långt från start blir den alltså en räddning och ett snabbt sätt tillbaka, nära start gör den mindre nytta.
-  // Står katten bredvid hissen när råttan åker iväg, försöker den hoppa efter och faller, vilket ger 500 poäng. En hiss där råttan ofta jagas blir en bra fälla.
-  // Varje oanvänd hiss ger 100 poäng när banan är klar.
-  // Lägg inte en hiss på en ruta som har #, för då täcker den rutan och osten där går inte att nå på vanligt sätt.
+  // CHEDDAR BANDIT - Classic. Each level is one { } in the list below, played in order. A level only needs
+  // the things it changes; everything else comes from DEFAULTS.cheese. The editor (cheese-editor.html) writes
+  // these for you.
+  //
+  //   size: 6          A plain square board, 6 x 6 cubes. Use either size or map.
+  //   map: [ ... ]     The board as rows of text, one letter per cube. Row 0 is the first string, column 0 its
+  //                    first letter. On screen the board is turned 45 degrees: row +1 goes down-left, column +1
+  //                    goes down-right.
+  //                      #     a cube on the ground
+  //                      1-9   a cube raised that many floors
+  //                      ^ > v <  a ramp, one floor up the way the arrow points (up-right, down-right,
+  //                            down-left, up-left on screen). A ramp takes its height from the cube at its low end.
+  //                      .     (or anything else) a hole
+  //                    The rat starts on the first cube of the first row: keep a cube there. It can step onto a
+  //                    cube on the same floor, go up only by a ramp, and survive a drop of one floor; two or more
+  //                    kill it. Cats and jellies never jump down more than one floor.
+  //   cats: 1          Cats on the board at the same time.
+  //   maxGels: 4       Jelly drops on the board at the same time.
+  //   lifts: 2         Rainbow lifts: a number (placed for you, beside the board), or a list, one entry per lift:
+  //                      [row, col]                 hovers level with the highest cube beside it
+  //                      [row, col, floor, landing] at that height, taking the rat to that landing cube
+  //                    A lift sits on an empty place (a hole, or -1 / one past the last row or column for just
+  //                    outside the board) right next to a cube. It disappears after one ride, and each unused lift
+  //                    is worth 100 points when the level is cleared. A cat that follows the rat onto it falls
+  //                    (500 points).
+  //   landings: [[row, col], ...]   Extra landing cubes H2, H3 ... for the lifts (H1 is always the start cube).
+  //                    Not on a ramp.
+  //   Also: ratHop, gelHop, gelFirst, gelSpawn, catHop, catFirst, catDelay, safe (see DEFAULTS.cheese).
+  //   Boards too big for the screen scroll after the rat.
   cheese: [
-    {},
-    { size: 9, lifts: [[-1, 4], [4, -1], [9, 4]] },
-    { lifts: [[-1, 4], [4, -1], [9, 4]], map: [
-      "#########",
-      "##.######",
-      "#####..##",
-      "#####..##",
-      "#.#######",
-      "###...###",
-      "###...#.#",
-      "###...###",
-      "#########",
-    ] },
-{ cats: 2, lifts: [[12, 6], [0, 12]], map: [
-  "##>>>44<<<<#",
-  "############",
-  "############",
-  "####....####",
-  "###......###",
-  "###......###",
-  "###......###",
-  "###......###",
-  "####....####",
-  "############",
-  "############",
-  "############",
-] },
-{ lifts: [[4, -1], [5, 9], [12, 4]], map: [
-  "#########",
-  "##.######",
-  "#....#..#",
-  "#....#..#",
-  "#>111##.#",
-  "##....#.#",
-  ".#...##..",
-  ".#...###.",
-  ".###.####",
-  "######1<#",
-  "#####>>2#",
-  "#########",
-] },
-{ lifts: [[4, -1], [12, 4], [4, 13]], map: [
-  "######...3333",
-  "#..###...322^",
-  "#..###...1>22",
-  "#..###...^###",
-  "#############",
-  "###........##",
-  "#############",
-  "...###...####",
-  "...###...####",
-  "...###...####",
-  "...###...####",
-  "...###...####",
-] },
-{ maxGels: 6, lifts: [[4, -1], [-1, 11], [9, 10], [14, 3], [9, 16]], map: [
-  "######.###########",
-  "######.########.#v",
-  "##..##..#.####..#1",
-  "##..##..#...#....^",
-  "##..##..########.#",
-  "....##..########..",
-  "######........##..",
-  "######.11####.##..",
-  "#......1^#..#.##..",
-  "#####..1##..#.##..",
-  "#####..##...#.##..",
-  "...######...#.##..",
-  "...##..##...#.##..",
-  "...######...####..",
-  ".............###..",
-] },
-{ cats: 2, maxGels: 5, lifts: [[4, -1], [12, 18], [14, 7], [2, 18], [2, 11]], map: [
-  "##########...#####",
-  "#######.##...#111#",
-  "##.###..#....#111#",
-  "##.###.#####.#111#",
-  "##.....#####.###^#",
-  ".#.....#####...###",
-  ".###########...#..",
-  ".#...#.#####...#..",
-  ".#...#.........#..",
-  ".#..#####....#####",
-  ".#..#111#....#111#",
-  ".####1<#######111#",
-  "....#111#....#111#",
-  "....#####....##^##",
-  "..............###.",
-] },
-{ cats: 3, maxGels: 6, lifts: [[4, -1], [8, 9], [9, 25]], map: [
-  "##########...#111111111>2>3",
-  "#######.##...#^..^###^#####",
-  "##.###..#....##..#.#.#.v.##",
-  "##.###.#####.##..###.#.v.##",
-  "##..#..#############.#.2.##",
-  ".#..#..#####...#..##.#.1.##",
-  ".###########...#..##.#.^.##",
-  ".#...#.#####...#..#########",
-  ".#...#.........#..#########",
-] },
-{ cats: 4, maxGels: 10, lifts: [[20, 20], [-1, 21], [8, 27], [8, 14], [20, 2]], map: [
-  "###..4442<<#.#111<#####>>22",
-  "###..444v#####^..#########^",
-  "######4<3###.##..#.###.#.#1",
-  "##.#########.##..#######.#1",
-  "##..###############......#^",
-  "##..########...#..#>11>2.##",
-  "############...#..##.....##",
-  ".##..#.#####...#..#########",
-  "..##.#.........#..#########",
-  "1<######################.##",
-  "v#######v######.####.###.##",
-  "v###.##111##.###.###.###.##",
-  "v##..##1v1#####.####.##..##",
-  "v##.###121#####.###..##..##",
-  "5#..###111#####.###......##",
-  "^#.#####^######.####.##.###",
-  "^##############.###.#######",
-  "^##############.##..##.####",
-  "^##########.###.##..##.####",
-  "1<#########################",
-] },
-    // Höjder och sluttningar (från bana 11): # är en kub på marken, 1-9 en kub som står så många steg högre,
-    // och ^ > v < är sluttningar. Man går uppför med den piltangent tecknet liknar (^ upp, > höger, v ner, < vänster).
-    // En sluttning tar sin höjd från kuben vid sin låga ände. Neråt kan man alltid hoppa, uppåt bara via en sluttning.
-    { cats: 2, lifts: [[4, -1], [9, 4]], map: [
-      "#########",
-      "#########",
-      "##11111##",
-      "##1>2<1##",
-      "#>12221<#",
-      "##12221##",
-      "##11111##",
-      "####^####",
-      "#########",
-    ] },
-{ cats: 2, maxGels: 5, lifts: [[10, 11]], map: [
-  "###########",
-  "##111v111##",
-  "##122v221##",
-  "##123v321##",
-  "##1233321##",
-  "##123^321##",
-  "##122^221##",
-  "##111^111##",
-  "##.###.####",
-  "###########",
-  "###########",
-] },
-{ cats: 3, maxGels: 7, lifts: [[23, 27], [-1, 25], [21, -1]], map: [
-  "######>1>2>3>44<3<2<1<#####",
-  "###########################",
-  "##...v#####.#.#.#.#########",
-  "##...v####........#########",
-  "##...v####........#########",
-  "###..v####........#########",
-  "###114<<<11111111111>>3####",
-  "###1..................^####",
-  "###1..................2####",
-  "###1..................2####",
-  "###1..................2####",
-  "###1..................2####",
-  "###1..................2####",
-  "###111>>>>>>77<<<<<<<.2####",
-  "###1..................2####",
-  "###1..................v####",
-  "###1..................3####",
-  "###1..................^####",
-  "###1..................2####",
-  "###1..................2####",
-  "###1..................2####",
-  "###1>>>>>666666666<<<<2####",
-  "###^#######################",
-  "###########################",
-  "###########################",
-] },
+    { size: 6 },
   ],
   // divers: ships that break away together, dive at the player, fire three quick shots and fly home.
   // map: the formation as rows of ships (#) and gaps (anything else).
@@ -1444,25 +1276,36 @@ const Pads = {
       text(label, bx, cy, { size: 12, color: on ? "#14082a" : "#fff" });
     }
   },
-  // Banh Mi Bistro: a four-way pad under one thumb, the lime under the other.
+  // Banh Mi Bistro: a round stick under one thumb (as on Moonfall's level 11), the lime under the other.
+  // The stick reads eight ways: a slant gives both a sideways and an up/down direction, which the chef uses to
+  // step off a ladder onto the next floor, or onto a ladder from the floor.
   readBistro() {
     const t = {}, l = this.zone(-1), r = this.zone(1);
     for (const p of Input.pointers.values()) {
       if (p.y < l.top) continue;
       if (p.x >= l.a && p.x <= l.b) {
         const dx = p.x - l.x, dy = p.y - l.y;
-        if (Math.max(Math.abs(dx), Math.abs(dy)) > 6) t[Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "up" : "down")] = true;
+        if (Math.hypot(dx, dy) > 6) {
+          const a = Math.atan2(dy, dx), c = Math.cos(a), s = Math.sin(a);
+          t.dir = a;
+          if (Math.abs(c) > 0.38) t[c < 0 ? "left" : "right"] = true;       // 0.38 = sin 22.5 degrees: eight equal slices
+          if (Math.abs(s) > 0.38) t[s < 0 ? "up" : "down"] = true;
+        }
       } else if (p.x >= r.a && p.x <= r.b) t.a = true;
     }
     return t;
   },
   drawBistro(limes) {
-    const l = this.zone(-1), r = this.zone(1), b = l.r * 0.62, s = l.r * 0.55;
-    for (const [dx, dy, a] of [[-1, 0, "left"], [1, 0, "right"], [0, -1, "up"], [0, 1, "down"]]) {
-      const cx = l.x + dx * b, cy = l.y + dy * b, on = Input.touch[a];
-      rounded(cx - s / 2, cy - s / 2, s, s, 7); ctx.fillStyle = on ? "rgba(170,240,140,.9)" : "rgba(110,200,110,.42)"; ctx.fill();
-      const px = -dy, py = dx;
-      poly([[cx + dx * 8, cy + dy * 8], [cx - dx * 5 + px * 8, cy - dy * 5 + py * 8], [cx - dx * 5 - px * 8, cy - dy * 5 - py * 8]], on ? "#14082a" : "#eaffd8");
+    const l = this.zone(-1), r = this.zone(1);
+    ctx.beginPath(); ctx.arc(l.x, l.y, l.r * 0.85, 0, TAU); ctx.fillStyle = "rgba(110,200,110,.18)"; ctx.fill();
+    ctx.strokeStyle = "rgba(150,230,130,.55)"; ctx.lineWidth = 3; ctx.stroke();
+    for (let k = 0; k < 4; k++) {                    // faint marks for the four main directions
+      const a = k * Math.PI / 2, rr = l.r * 0.85;
+      line([[l.x + Math.cos(a) * rr * 0.72, l.y + Math.sin(a) * rr * 0.72], [l.x + Math.cos(a) * rr * 0.92, l.y + Math.sin(a) * rr * 0.92]], "rgba(200,255,180,.5)");
+    }
+    if (Input.touch.dir !== undefined) {
+      ctx.beginPath(); ctx.arc(l.x + Math.cos(Input.touch.dir) * l.r * 0.6, l.y + Math.sin(Input.touch.dir) * l.r * 0.6, 9, 0, TAU);
+      ctx.fillStyle = "rgba(190,255,150,.9)"; ctx.fill();
     }
     ctx.beginPath(); ctx.arc(r.x, r.y, r.r * 0.86, 0, TAU);
     ctx.fillStyle = Input.touch.a ? "#eaffb0" : "rgba(140,220,70,.55)"; ctx.fill();
@@ -2235,8 +2078,8 @@ class Cheese extends Game {
     if (this.lucky && same(cell, this.lucky.cell)) this.drawLucky(p, cell);
     const li = this.landings.length > 1 ? this.landings.findIndex(l => same(l, cell)) : -1;
     if (li >= 0) {                       // a landing cube, painted with its number
-      ctx.font = "800 7px Nunito, system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillStyle = "rgba(26,13,51,.6)"; ctx.fillText("H" + (li + 1), p[0], p[1] + 7);      // near the front corner, clear of the cheese
+      ctx.font = "800 6px Nunito, system-ui, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(26,13,51,.6)"; ctx.fillText("H" + (li + 1), p[0], p[1] + 5);      // towards the front corner, clear of the cheese
     }
     if (wave > 0.6) rect(p[0] + Math.sin(i * 7) * 6 - 1, p[1] + Math.cos(j * 5) * 3 - 1, 2, 2, `rgba(255,255,255,${wave})`);
   }
@@ -5594,6 +5437,18 @@ class Bistro extends Game {
     else if (!want && live && live.sid) Sound.stop("music");
     for (const k of ["dizzy", "cataball"]) if (k !== want) delete Sound.sidKeep[k];
   }
+  // Extra lives for points: at 10 000, then every 20 000 (30 000, 50 000 ...), up to nine.
+  addScore(n) {
+    const lifeCount = sc => sc < 10000 ? 0 : 1 + Math.floor((sc - 10000) / 20000);
+    const before = lifeCount(this.score);
+    super.addScore(n);
+    const gained = lifeCount(this.score) - before;
+    if (gained > 0 && this.lives < 9) {
+      this.lives = Math.min(9, this.lives + gained);
+      this.float("Extra life!", 240, 120, 1.6);
+      Sound.play(Sound.buf.mb_luckygot ? "mb_luckygot" : "mb_bm_coffee", false, 1, "fanfare");
+    }
+  }
   // Laps: after level 6 the six levels come round again, with harder enemies each time. The game never ends
   // until the lives run out.
   get cfg() { return Object.assign({}, DEFAULTS[this.id], this.levels[this.level % this.levels.length]); }
@@ -6141,7 +5996,7 @@ const menu = {
   drawChoice() {
     View.fill("rgba(10,3,22,.82)");
     text("Cheddar Bandit", 240, 68, { size: 20, color: "#ff7ad9" });
-    [["Classic", LEVELS.cheese.length + " levels", "cheese"], ["Random", "20 new levels every time", "cheese20"]].forEach(([name, sub, id], i) => {
+    [["Classic", LEVELS.cheese.length + (LEVELS.cheese.length === 1 ? " level" : " levels"), "cheese"], ["Random", "20 new levels every time", "cheese20"]].forEach(([name, sub, id], i) => {
       const r = this.modeBox(i), on = i === this.mode, hs = Save.hs(id);
       rounded(r.x, r.y, r.w, r.h, 7); ctx.fillStyle = on ? "#3f2a6c" : "#2a1a4a"; ctx.fill();
       if (on) { ctx.strokeStyle = "#ff7ad9"; ctx.lineWidth = 2; ctx.stroke(); }
